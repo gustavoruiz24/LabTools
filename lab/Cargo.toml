@@ -1,0 +1,11 @@
+[package]
+name = "lab"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+value = { path = "../value" }
+dimension = { path = "../dimension" }
+formulas = { path = "../formulas" }
+matriz = { path = "../matriz" }
+unk_tools = { path = "../unk_tools" }

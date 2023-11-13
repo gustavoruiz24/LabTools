@@ -1,0 +1,4 @@
+[workspace]
+members = ["lab", "value", "matriz", "dimension", "formulas", "unk_tools"]
+exclude = ["physics_lab"]
+resolver = "2"
