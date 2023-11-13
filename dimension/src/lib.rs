@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 use std::ops::*;
-use std::fmt::{self, Display, Formatter, LowerExp, UpperExp};
+use std::fmt::{self, Debug, Display, Formatter, LowerExp, UpperExp};
 use std::sync::Arc;
 use crate::DimensionBase::*;
 
@@ -165,12 +165,12 @@ impl Dimension {
             ND => {
                 Dimension {
                     value: 0.0,
-                    prefix: 6,
+                    prefix: 0,
                     unit: 0,
                     base_name: ND,
-                    si_unit: "ND",
-                    prefixes: Arc::new([("T", 1e12), ("G", 1e9), ("M", 1e6), ("k", 1e3), ("h", 1e2), ("da", 1e1), ("", 1.0), ("d", 1e-1), ("c", 1e-2), ("m", 1e-3), ("u", 1e-6), ("n", 1e-9), ("p", 1e-12), ("f", 1e-15)]),
-                    units: Arc::new(["ND"]),
+                    si_unit: "",
+                    prefixes: Arc::new([("", 1.0)]),
+                    units: Arc::new([""]),
                     conv_rates: Arc::new([])
                 }
             }
@@ -178,16 +178,19 @@ impl Dimension {
     }
 
     fn separate_unit(base: &Dimension, unit: &str) -> Option<(usize, usize)> {
-        let mut chars = unit.chars();
-        let (prefix, unit) = (chars.next().unwrap(), String::from_iter(chars));
-        let prefix_pos = base.prefixes.iter().position(|x| &x.0.to_string() == &prefix.to_string());
-        let unit_pos = base.units.iter().position(|x| x == &unit);
-        if unit_pos.is_some() && prefix_pos.is_some() {
-            Some((prefix_pos.unwrap(), unit_pos.unwrap()))
+        if base.get_str_unit() != "" {
+            let mut chars = unit.chars();
+            let (prefix, unit) = (chars.next().unwrap(), String::from_iter(chars));
+            let prefix_pos = base.prefixes.iter().position(|x| &x.0.to_string() == &prefix.to_string());
+            let unit_pos = base.units.iter().position(|x| x == &unit);
+            if unit_pos.is_some() && prefix_pos.is_some() {
+                Some((prefix_pos.unwrap(), unit_pos.unwrap()))
+            }
+            else {
+                None
+            }
         }
-        else {
-            None
-        }
+        else { None }
     }
 
     pub fn remove_prefix(&mut self) {
@@ -275,16 +278,20 @@ impl Dimension {
 
     pub fn verified_add(&self, other: Dimension) -> Result<Dimension, String> {
         if self.unit == other.unit {
-            Dimension::init(self.value + other.value, self.units[self.unit], self.base_name)
-        } else { Err(format!("unitError: {} can't add {}", self.units[self.unit], self.units[other.unit])) }
+            Dimension::init(self.value + other.value, self.get_str_unit(), self.base_name)
+        } else { Err(format!("unitError: {} can't add {}", self.get_str_unit(), self.units[other.unit])) }
     }
 
     pub fn pow(&self, exp: f64) -> Dimension {
-        Dimension::init(self.value.powf(exp), self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value.powf(exp), self.get_str_unit(), self.base_name).unwrap()
     }
 
     pub fn get_value(&self) -> f64 {
         self.value
+    }
+
+    pub fn get_str_unit(&self) -> &'static str {
+        self.units[self.unit]
     }
 
     pub fn units_vs_si(base: DimensionBase) {
@@ -300,23 +307,43 @@ impl Dimension {
             println!("{:4} {}", c_unit.to_string() + ":", Dimension::init(1.0, c_unit, base).unwrap().as_unit(unit).unwrap())
         }
     }
+
+    pub fn show_prefixes() {
+        let prefixes = [("T", 1e12), ("G", 1e9), ("M", 1e6), ("k", 1e3), ("h", 1e2), ("da", 1e1), ("", 1.0), ("d", 1e-1), ("c", 1e-2), ("m", 1e-3), ("u", 1e-6), ("n", 1e-9), ("p", 1e-12), ("f", 1e-15)];
+        for prefix in prefixes {
+            if prefix.0 != "" {
+                println!("{}: {}", prefix.0, prefix.1)
+            }
+        }
+    }
 }
 
 impl Display for Dimension {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}{}{}", self.value, self.prefixes[self.prefix].0, self.units[self.unit])
+        write!(f, "{}{}{}", self.value, self.prefixes[self.prefix].0, self.get_str_unit())
+    }
+}
+
+impl Debug for Dimension {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.get_str_unit() != "" {
+            write!(f, "{}{}{}", self.value, self.prefixes[self.prefix].0, self.get_str_unit())
+        }
+        else {
+            write!(f, "{}ND", self.value)
+        }
     }
 }
 
 impl UpperExp for Dimension {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:E}{}{}", self.value, self.prefixes[self.prefix].0, self.units[self.unit])
+        write!(f, "{:E}{}{}", self.value, self.prefixes[self.prefix].0, self.get_str_unit())
     }
 }
 
 impl LowerExp for Dimension {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{:e}{}{}", self.value, self.prefixes[self.prefix].0, self.units[self.unit])
+        write!(f, "{:e}{}{}", self.value, self.prefixes[self.prefix].0, self.get_str_unit())
     }
 }
 
@@ -324,7 +351,7 @@ impl Add<Dimension> for Dimension {
     type Output = Dimension;
 
     fn add(self, other: Dimension) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(self.value + other.as_unit(&complete_unit).unwrap().value, &complete_unit, self.base_name).unwrap()
     }
 }
@@ -333,7 +360,7 @@ impl Add<f64> for Dimension {
     type Output = Dimension;
 
     fn add(self, other: f64) -> Dimension {
-        Dimension::init(self.value + other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value + other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -342,7 +369,7 @@ impl Add<i32> for Dimension {
 
     fn add(self, other: i32) -> Dimension {
         let other = other as f64;
-        Dimension::init(self.value + other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value + other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -350,7 +377,7 @@ impl Sub<Dimension> for Dimension {
     type Output = Dimension;
 
     fn sub(self, other: Dimension) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(self.value - other.as_unit(&complete_unit).unwrap().value, &complete_unit, self.base_name).unwrap()
     }
 }
@@ -359,7 +386,7 @@ impl Sub<f64> for Dimension {
     type Output = Dimension;
 
     fn sub(self, other: f64) -> Dimension {
-        Dimension::init(self.value - other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value - other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -368,7 +395,7 @@ impl Sub<i32> for Dimension {
 
     fn sub(self, other: i32) -> Dimension {
         let other = other as f64;
-        Dimension::init(self.value - other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value - other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -376,7 +403,7 @@ impl Mul<Dimension> for Dimension {
     type Output = Dimension;
 
     fn mul(self, other: Dimension) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(self.value * other.as_unit(&complete_unit).unwrap().value, &complete_unit, self.base_name).unwrap()
     }
 }
@@ -385,7 +412,7 @@ impl Mul<f64> for Dimension {
     type Output = Dimension;
 
     fn mul(self, other: f64) -> Dimension {
-        Dimension::init(self.value * other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value * other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -394,7 +421,7 @@ impl Mul<i32> for Dimension {
 
     fn mul(self, other: i32) -> Dimension {
         let other = other as f64;
-        Dimension::init(self.value * other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value * other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -402,7 +429,7 @@ impl Div<Dimension> for Dimension {
     type Output = Dimension;
 
     fn div(self, other: Dimension) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(self.value / other.as_unit(&complete_unit).unwrap().value, &complete_unit, self.base_name).unwrap()
     }
 }
@@ -411,7 +438,7 @@ impl Div<f64> for Dimension {
     type Output = Dimension;
 
     fn div(self, other: f64) -> Dimension {
-        Dimension::init(self.value / other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value / other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -420,7 +447,7 @@ impl Div<i32> for Dimension {
 
     fn div(self, other: i32) -> Dimension {
         let other = other as f64;
-        Dimension::init(self.value / other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value / other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -428,7 +455,7 @@ impl Rem<Dimension> for Dimension {
     type Output = Dimension;
 
     fn rem(self, other: Dimension) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(self.value % other.as_unit(&complete_unit).unwrap().value, &complete_unit, self.base_name).unwrap()
     }
 }
@@ -437,7 +464,7 @@ impl Rem<f64> for Dimension {
     type Output = Dimension;
 
     fn rem(self, other: f64) -> Dimension {
-        Dimension::init(self.value % other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value % other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
@@ -446,13 +473,13 @@ impl Rem<i32> for Dimension {
 
     fn rem(self, other: i32) -> Dimension {
         let other = other as f64;
-        Dimension::init(self.value % other, self.units[self.unit], self.base_name).unwrap()
+        Dimension::init(self.value % other, self.get_str_unit(), self.base_name).unwrap()
     }
 }
 
 impl AddAssign<Dimension> for Dimension {
     fn add_assign(&mut self, other: Dimension) {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         self.value += other.as_unit(&complete_unit).unwrap().value
     }
 }
@@ -472,7 +499,7 @@ impl AddAssign<i32> for Dimension {
 
 impl SubAssign<Dimension> for Dimension {
     fn sub_assign(&mut self, other: Dimension) {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         self.value -= other.as_unit(&complete_unit).unwrap().value
     }
 }
@@ -492,7 +519,7 @@ impl SubAssign<i32> for Dimension {
 
 impl MulAssign<Dimension> for Dimension {
     fn mul_assign(&mut self, other: Dimension) {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         self.value *= other.as_unit(&complete_unit).unwrap().value
     }
 }
@@ -512,7 +539,7 @@ impl MulAssign<i32> for Dimension {
 
 impl DivAssign<Dimension> for Dimension {
     fn div_assign(&mut self, other: Dimension) {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         self.value /= other.as_unit(&complete_unit).unwrap().value
     }
 }
@@ -532,7 +559,7 @@ impl DivAssign<i32> for Dimension {
 
 impl RemAssign<Dimension> for Dimension {
     fn rem_assign(&mut self, other: Dimension) {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         self.value %= other.as_unit(&complete_unit).unwrap().value
     }
 }
@@ -554,7 +581,7 @@ impl Neg for Dimension {
     type Output = Dimension;
 
     fn neg(self) -> Dimension {
-        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+        let complete_unit = self.prefixes[self.prefix].0.to_string() + self.get_str_unit();
         Dimension::init(-self.value, &complete_unit, self.base_name).unwrap()
     }
 }

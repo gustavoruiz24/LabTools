@@ -41,7 +41,7 @@ impl Value {
     pub fn powv(&self, exp: Value) -> Value {
         match (self, exp) {
             (Number(x), Number(y)) => { Number(x.pow(y.get_value())) },
-            (Unknown(x), Number(y)) => { Unknown(x.to_owned() + &format!(":pw{}", y)) },
+            (Unknown(x), Number(y)) => { Unknown(x.to_owned() + &format!(":pw{:?}", y)) },
             _ => { panic!("`exp` parameter received an `Unknown` value at `Value::powv`.") }
         }
     }
@@ -49,7 +49,7 @@ impl Value {
     pub fn powd(&self, exp: Dimension) -> Value {
         match self {
             Number(x) => { Number(x.pow(exp.get_value())) },
-            Unknown(x) => { Unknown(x.to_owned() + &format!(":pw{}", exp)) }
+            Unknown(x) => { Unknown(x.to_owned() + &format!(":pw{:?}", exp)) }
         }
     }
 
@@ -115,8 +115,8 @@ impl Add<Value> for Value {
     fn add(self, other: Value) -> Value {
         match (self, other) {
             (Number(x), Number(y)) => { Number(x + y) },
-            (Number(x), Unknown(y)) => { Unknown(y + &format!(":p{}", x)) },
-            (Unknown(x), Number(y)) => { Unknown(x + &format!(":p{}", y)) },
+            (Number(x), Unknown(y)) => { Unknown(y + &format!(":p{:?}", x)) },
+            (Unknown(x), Number(y)) => { { Unknown(x + &format!(":p{:?}", y)) } },
             _ => { panic!("Tried add `Unknown` to `Unknown`.") }
         }
     }
@@ -128,7 +128,7 @@ impl Add<Dimension> for Value {
     fn add(self, other: Dimension) -> Value {
         match self {
             Number(x) => { Number(x + other) },
-            Unknown(x) => { Unknown(x + &format!(":p{}", other)) }
+            Unknown(x) => { Unknown(x + &format!(":p{:?}", other)) }
         }
     }
 }
@@ -163,7 +163,7 @@ impl Sub<Value> for Value {
         match (self.clone(), other.clone()) {
             (Number(x), Number(y)) => { Number(x - y) },
             (Number(x), Unknown(_)) => { -other + x },
-            (Unknown(x), Number(y)) => { Unknown(x + &format!(":s{}", y)) },
+            (Unknown(x), Number(y)) => { Unknown(x + &format!(":s{:?}", y)) },
             _ => { panic!("Tried subtract `Unknown` from `Unknown`.") }
         }
     }
@@ -175,7 +175,7 @@ impl Sub<Dimension> for Value {
     fn sub(self, other: Dimension) -> Value {
         match self {
             Number(x) => { Number(x - other) },
-            Unknown(x) => { Unknown(x + &format!(":s{}", other)) }
+            Unknown(x) => { Unknown(x + &format!(":s{:?}", other)) }
         }
     }
 }
@@ -209,8 +209,8 @@ impl Mul<Value> for Value {
     fn mul(self, other: Value) -> Value {
         match (self, other) {
             (Number(x), Number(y)) => { Number(x * y) },
-            (Number(x), Unknown(y)) => { Unknown(y + &format!(":m{}", x)) },
-            (Unknown(x), Number(y)) => { Unknown(x + &format!(":m{}", y)) },
+            (Number(x), Unknown(y)) => { Unknown(y + &format!(":m{:?}", x)) },
+            (Unknown(x), Number(y)) => { Unknown(x + &format!(":m{:?}", y)) },
             _ => { panic!("Tried multiply `Unknown` by `Unknown`.") }
         }
     }
@@ -222,7 +222,7 @@ impl Mul<Dimension> for Value {
     fn mul(self, other: Dimension) -> Value {
         match self {
             Number(x) => { Number(x * other) },
-            Unknown(x) => { Unknown(x + &format!(":m{}", other)) }
+            Unknown(x) => { Unknown(x + &format!(":m{:?}", other)) }
         }
     }
 }
@@ -257,7 +257,7 @@ impl Div<Value> for Value {
         match (self, other.clone()) {
             (Number(x), Number(y)) => { Number(x / y) },
             (Number(x), Unknown(_y)) => { (other / x).pow(-1.0) },
-            (Unknown(x), Number(y)) => { Unknown(x + &format!(":d{}", y)) },
+            (Unknown(x), Number(y)) => { Unknown(x + &format!(":d{:?}", y)) },
             _ => { panic!("Tried divide `Unknown` by `Unknown`.") }
         }
     }
@@ -269,7 +269,7 @@ impl Div<Dimension> for Value {
     fn div(self, other: Dimension) -> Value {
         match self {
             Number(x) => { Number(x / other) },
-            Unknown(x) => { Unknown(x + &format!(":d{}", other)) }
+            Unknown(x) => { Unknown(x + &format!(":d{:?}", other)) }
         }
     }
 }
