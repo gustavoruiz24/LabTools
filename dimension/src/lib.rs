@@ -513,7 +513,7 @@ impl MulAssign<i32> for Dimension {
 impl DivAssign<Dimension> for Dimension {
     fn div_assign(&mut self, other: Dimension) {
         let complete_unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
-        self.value /= other.as_unit(self.units[self.unit]).unwrap().value
+        self.value /= other.as_unit(&complete_unit).unwrap().value
     }
 }
 
