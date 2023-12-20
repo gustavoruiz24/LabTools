@@ -8,4 +8,3 @@ edition = "2021"
 [dependencies]
 log = "0.4.20"
 env_logger = "0.10.0"
-forward_ref_generic = "0.2.1"
