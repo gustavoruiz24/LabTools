@@ -9,3 +9,6 @@ dimension = { path = "../dimension" }
 formulas = { path = "../formulas" }
 matriz = { path = "../matriz" }
 unk_tools = { path = "../unk_tools" }
+compare = { path = "../compare" }
+dev_tests = { path = "../dev_tests" }
+array_maker = { path = "../array_maker" }

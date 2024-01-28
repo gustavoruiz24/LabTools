@@ -264,7 +264,7 @@ impl Div<Value> for Value {
     fn div(self, other: Value) -> Value {
         match (self, other.clone()) {
             (Number(x), Number(y)) => Number(x / y),
-            (Number(x), Unknown(_y)) => (other / x).powf(-1.0),
+            (Number(x), Unknown(_y)) => (other / x).pow(-1.0),
             (Unknown(x), Number(y)) => Unknown(x + &format!(":d{}", y.unwrap_to_debug())),
             _ => {
                 panic!("Tried divide `Unknown` by `Unknown`.")
@@ -310,9 +310,9 @@ impl Div<i32> for Value {
 impl Pow<Value> for Value {
     type Output = Value;
 
-    fn powf(self, other: Value) -> Value {
+    fn pow(self, other: Value) -> Value {
         match (self, other) {
-            (Number(x), Number(y)) => Number(x.powf(y.get_value())),
+            (Number(x), Number(y)) => Number(x.pow(y.get_value())),
             (Unknown(x), Number(y)) => {
                 Unknown(x.to_owned() + &format!(":pw{}", y.unwrap_to_debug()))
             }
@@ -326,9 +326,9 @@ impl Pow<Value> for Value {
 impl Pow<GeneDimen> for Value {
     type Output = Value;
 
-    fn powf(self, other: GeneDimen) -> Value {
+    fn pow(self, other: GeneDimen) -> Value {
         match self {
-            Number(x) => Number(x.powf(other.get_value())),
+            Number(x) => Number(x.pow(other.get_value())),
             Unknown(x) => Unknown(x.to_owned() + &format!(":pw{}", other.unwrap_to_debug())),
         }
     }
@@ -337,9 +337,9 @@ impl Pow<GeneDimen> for Value {
 impl Pow<f64> for Value {
     type Output = Value;
 
-    fn powf(self, other: f64) -> Value {
+    fn pow(self, other: f64) -> Value {
         match self {
-            Number(x) => Number(x.powf(other)),
+            Number(x) => Number(x.pow(other)),
             Unknown(x) => Unknown(x.to_owned() + &format!(":pw{}ND", other)),
         }
     }
@@ -348,9 +348,9 @@ impl Pow<f64> for Value {
 impl Pow<i32> for Value {
     type Output = Value;
 
-    fn powf(self, other: i32) -> Value {
+    fn pow(self, other: i32) -> Value {
         let other = other as f64;
-        self.powf(other)
+        self.pow(other)
     }
 }
 

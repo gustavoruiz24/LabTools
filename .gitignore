@@ -1,0 +1,7 @@
+target
+images
+lab
+*tests
+*.lock
+*.py
+.idea

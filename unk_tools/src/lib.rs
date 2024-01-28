@@ -40,7 +40,7 @@ pub fn solve_unknown(unk: Value, exp_res: Value) -> Result<Value, String> {
             "s" => result += val,
             "m" => result /= val,
             "d" => result *= val,
-            "pw" => result = result.powf(val.powf(-1.0)),
+            "pw" => result = result.pow(val.pow(-1.0)),
             _ => return Err("Invalid values were passed to `unk` in `solve_unknown`.".to_string()),
         }
     }
@@ -59,7 +59,7 @@ pub fn rule_of_three_v(fst_rel: (Value, Value), snd_rel: (Value, Value)) -> Valu
 }
 
 pub fn rule_of_three_d(fst_rel: (GeneDimen, Value), snd_rel: (GeneDimen, GeneDimen)) -> Value {
-    let right = fst_rel.0 * snd_rel.1 / snd_rel.0;
+    let right = fst_rel.0 * (snd_rel.1 / snd_rel.0);
     let left = fst_rel.1;
     solve_unknown(left, Value::from(right)).unwrap()
 }

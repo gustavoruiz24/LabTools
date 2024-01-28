@@ -1,12 +1,15 @@
-use std::fmt::Display;
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
 use std::fmt;
+use std::fmt::Display;
 
 pub struct Matriz {
-    rules: fn (usize, usize) -> usize,
+    rules: fn(usize, usize) -> usize,
     size_x: usize,
     size_y: usize,
     matriz: Vec<Vec<usize>>,
-    bigger_num_len: usize
+    bigger_num_len: usize,
 }
 
 impl Matriz {
@@ -21,15 +24,19 @@ impl Matriz {
         loop {
             if result != 0 {
                 num_of_digits += 1;
-                result = result / 10
+                result /= 10
+            } else {
+                break;
             }
-            else { break }
         }
 
         num_of_digits
     }
 
-    fn apply_rules(size: (usize, usize), rule: fn (usize, usize) -> usize) -> (Vec<Vec<usize>>, usize) {
+    fn apply_rules(
+        size: (usize, usize),
+        rule: fn(usize, usize) -> usize,
+    ) -> (Vec<Vec<usize>>, usize) {
         let mut m: Vec<Vec<usize>> = vec![];
         let mut bnl = 0;
 
@@ -42,15 +49,21 @@ impl Matriz {
                 if num_of_digits > bnl {
                     bnl = num_of_digits
                 }
-                m[y-1].push(result)
+                m[y - 1].push(result)
             }
         }
         (m, bnl)
     }
 
-    pub fn create(size: (usize, usize), rule: fn (usize, usize) -> usize) -> Matriz {
+    pub fn create(size: (usize, usize), rule: fn(usize, usize) -> usize) -> Matriz {
         let mounted_matriz = Matriz::apply_rules(size, rule);
-        Matriz { size_x: size.0, size_y: size.1, rules: rule, matriz: mounted_matriz.0, bigger_num_len: mounted_matriz.1}
+        Matriz {
+            size_x: size.0,
+            size_y: size.1,
+            rules: rule,
+            matriz: mounted_matriz.0,
+            bigger_num_len: mounted_matriz.1,
+        }
     }
 }
 

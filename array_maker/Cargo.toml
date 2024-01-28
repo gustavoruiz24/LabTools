@@ -1,9 +1,9 @@
 [package]
-name = "dimension_extras"
+name = "array_maker"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dimension ={ path = "../dimension" }
+rand = "0.8.5"

@@ -1,8 +1,8 @@
-use dimension::*;
+use crate::*;
 
 pub fn bcm_no_decimals(sd: &mut SimpDimen) {
     sd.remove_prefix();
-    for u in sd.get_unit_pos_c()..sd.get_units().len() {
+    for u in sd.get_unit_pos()..sd.get_units().len() {
         sd.bcm_unit_unchecked(sd.get_prefix(), u);
         let integer_part = sd.get_value().trunc();
         if sd.get_value() == integer_part {
@@ -13,8 +13,7 @@ pub fn bcm_no_decimals(sd: &mut SimpDimen) {
     }
     for (i, (_, p)) in sd.get_prefixes().iter().enumerate() {
         if sd.get_value() * p.powi(-1) >= sd.get_value().trunc() {
-            sd.set_value(sd.get_value() * p.powi(-1));
-            sd.set_prefix_kv(i);
+            sd.bcm_unit_unchecked(i, sd.get_unit_pos());
             return;
         }
     }
@@ -81,7 +80,7 @@ where
     });
 
     for (i, d) in &to_convert {
-        working_copy.bcm_unit_unchecked(d.get_prefix(), d.get_unit_pos_c());
+        working_copy.bcm_unit_unchecked(d.get_prefix(), d.get_unit_pos());
         let is_last = formatted.len() + 1 == to_convert.len();
 
         let integer_part = working_copy.get_value().trunc();
