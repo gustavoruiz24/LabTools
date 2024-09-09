@@ -7,6 +7,7 @@ use plotters::prelude::*;
 use rand::prelude::*;
 use std::fmt::{Display, Formatter};
 use std::ops::Add;
+use dimension::traits::{DimenBasics, DimenSetAndGet};
 
 pub trait CompareBasics {
     fn as_f64(&self) -> f64;
@@ -104,16 +105,16 @@ pub struct Comparison<T> {
 }
 
 impl<T> Comparison<T>
-where
-    T: Display + Add<Output = T> + PartialEq + Clone + CompareBasics,
+    where
+        T: Display + Add<Output = T> + PartialEq + Clone + CompareBasics,
 {
-    fn take_max<X: Display>(x: &Vec<X>) -> usize {
+    fn take_max<X: Display>(x: &[X]) -> usize {
         x.iter().map(|x| x.to_string().len()).max().unwrap()
     }
 
     fn take_max_sizes(
-        results: &Vec<CompResult<T>>,
-        error_rates: &Vec<Option<T>>,
+        results: &[CompResult<T>],
+        error_rates: &[Option<T>],
     ) -> (usize, Option<usize>) {
         let r_max_size = Self::take_max(results);
 
@@ -180,13 +181,13 @@ where
         fns: Vec<fn(X) -> X>,
         err_rate_fn: fn(&X, &X) -> X,
     ) -> Comparison<X>
-    where
-        X: Display + Add<Output = T> + PartialEq + Clone + CompareBasics,
+        where
+            X: Display + Add<Output = T> + PartialEq + Clone + CompareBasics,
     {
         let min_max = |old: (f64, f64), new: f64| -> (f64, f64) {
-            if new < old.0 && new.is_normal() {
+            if new < old.0 {
                 (new, old.1)
-            } else if new > old.1 && new.is_normal() {
+            } else if new > old.1 {
                 (old.0, new)
             } else {
                 (old.0, old.1)
@@ -224,7 +225,7 @@ where
                     error_rate = None;
                     res = Correct(result);
                 } else {
-                    error_rate = Some(err_rate_fn(&correct, &result));
+                    error_rate = Some(err_rate_fn(correct, &result));
                     res = Wrong(result);
                 }
                 results_piece.push(res);
@@ -283,7 +284,7 @@ where
             let mut message = format!("Value: {}", self.values[i]);
             Self::print_complete(&mut message, 7 + v_max);
 
-            for model in 0..self.results.len() {
+            for (model, _) in r_maximums.iter().enumerate().take(self.results.len()) {
                 let mut result = format!("Result: {}", self.results[model][i]);
                 Self::print_complete(&mut result, 8 + r_maximums[model]);
             }
