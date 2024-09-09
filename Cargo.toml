@@ -1,4 +1,3 @@
 [workspace]
-members = ["lab", "value", "matriz", "dimension", "formulas",
-    "unk_tools", "compare", "array_maker", "dev_tests"]
+members = ["lab", "dimension", "compare", "array_maker", "dev_tests", "expression"]
 resolver = "2"
