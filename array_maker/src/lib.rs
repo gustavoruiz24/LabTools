@@ -24,9 +24,9 @@ pub fn rand_by_key<T>(
 
 pub fn seq_by_key<T>(start: isize, end: isize, skip: usize, key: fn(isize) -> T) -> Vec<T> {
     if start < end {
-        Vec::from_iter((start..=end).step_by(skip).map(|x| key(x)))
+        Vec::from_iter((start..=end).step_by(skip).map(key))
     } else {
-        Vec::from_iter((end..=start).rev().step_by(skip).map(|x| key(x)))
+        Vec::from_iter((end..=start).rev().step_by(skip).map(key))
     }
 }
 
