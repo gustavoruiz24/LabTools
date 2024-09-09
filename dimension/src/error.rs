@@ -1,6 +1,8 @@
 use super::*;
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
+
+pub type NewDimenRes<Dimen> = Result<Dimen, DimenError>;
+pub type ModDimenRes<Dimen> = Result<Dimen, DimenError>;
 
 pub type OwnerName = &'static str;
 pub type OwnerBase = String;

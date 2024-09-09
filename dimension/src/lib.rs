@@ -3,7 +3,10 @@ use std::fmt::{self, Debug, Display, Formatter, LowerExp, UpperExp};
 use std::ops::*;
 
 use data::*;
-use error::DimenError::{self, *};
+use error::*;
+use error::DimenError::*;
+use macros::*;
+use traits::*;
 
 use self::GeneDimen::*;
 use self::SimpDimenBase::*;
@@ -11,6 +14,8 @@ use self::SimpDimenBase::*;
 pub mod data;
 pub mod error;
 pub mod utils;
+pub mod macros;
+pub mod traits;
 
 fn unwrap_brackets(value: &str) -> String {
     let mut value = value;
@@ -326,415 +331,6 @@ fn take_num_unit<T: AsRef<str>>(
     Ok((number, unit))
 }
 
-pub type NewDimenRes<Dimen> = Result<Dimen, DimenError>;
-pub type ModDimenRes<Dimen> = Result<Dimen, DimenError>;
-
-pub trait PowD<Rhs = Self> {
-    type Output;
-
-    fn powd(self, other: Rhs) -> Self::Output;
-}
-
-pub trait Pow<Rhs = Self> {
-    type Output;
-
-    fn pow(self, other: Rhs) -> Self::Output;
-}
-
-pub trait DimenBasics {
-    fn is_nd(&self) -> bool;
-
-    fn to_si(&self) -> Self
-    where
-        Self: Sized + Clone,
-    {
-        let mut d = self.clone();
-        d.bcm_si();
-        d
-    }
-
-    fn to_unit<T: AsRef<str>>(&self, unit: T) -> ModDimenRes<Self>
-    where
-        Self: Sized + Clone,
-    {
-        let mut d = self.clone();
-        d.bcm_unit(unit)?;
-        Ok(d)
-    }
-
-    fn bcm_si(&mut self);
-
-    fn bcm_unit<T: AsRef<str>>(&mut self, unit: T) -> Result<(), DimenError>;
-
-    fn to_generic(self) -> GeneDimen;
-
-    fn verified_add(&self, other: &Self) -> ModDimenRes<Self>
-    where
-        Self: Sized;
-
-    fn verified_sub(&self, other: &Self) -> ModDimenRes<Self>
-    where
-        Self: Sized;
-
-    fn verified_mul(&self, other: &Self) -> ModDimenRes<Self>
-    where
-        Self: Sized;
-
-    fn verified_div(&self, other: &Self) -> ModDimenRes<Self>
-    where
-        Self: Sized;
-
-    fn verified_pow(&self, other: &Self) -> ModDimenRes<Self>
-    where
-        Self: Sized;
-}
-
-pub trait DimenBaseDependents<Base> {
-    fn init(value: f64, unit: &str, base: Base) -> NewDimenRes<Self>
-    where
-        Self: Sized;
-
-    fn get_base(&self) -> Base;
-}
-
-pub trait DimenSetAndGet {
-    fn set_value(&mut self, other: f64);
-
-    fn get_value(&self) -> f64;
-
-    fn get_unit(&self) -> String;
-
-    fn get_base_to_display(&self) -> String;
-
-    fn get_name() -> &'static str;
-}
-
-macro_rules! impl_ops_d_for_d {
-    ($($d1:ident, $d2:ident);+) => {
-        $(
-            impl Add<$d2> for $d1 {
-                type Output = GeneDimen;
-
-                fn add(mut self, other: $d2) -> Self::Output {
-                    if other.is_nd() {
-                        self.set_value(self.get_value() + other.get_value());
-                        self.to_generic()
-                    }
-                    else if self.is_nd() {
-                        let mut other = other;
-                        other.set_value(self.get_value() + other.get_value());
-                        other.to_generic()
-                    }
-                    else {
-                        let other_result = other.to_unit(self.get_unit());
-                        if let Ok(other) = other_result {
-                            self.set_value(self.get_value() + other.get_value());
-                            self.to_generic()
-                        }
-                        else {
-                            panic!("{}",
-                                OperationError(
-                                Self::get_name(),
-                                self.get_base_to_display(),
-                                "add",
-                                $d2::get_name(),
-                                other.get_base_to_display())
-                            )
-                        }
-                    }
-                }
-            }
-
-            impl Sub<$d2> for $d1 {
-                type Output = GeneDimen;
-
-                fn sub(mut self, other: $d2) -> Self::Output {
-                    if other.is_nd() {
-                        self.set_value(self.get_value() - other.get_value());
-                        self.to_generic()
-                    }
-                    else if self.is_nd() {
-                        let mut other = other;
-                        other.set_value(self.get_value() - other.get_value());
-                        other.to_generic()
-                    }
-                    else {
-                        let other_result = other.to_unit(self.get_unit());
-                        if let Ok(other) = other_result {
-                            self.set_value(self.get_value() - other.get_value());
-                            self.to_generic()
-                        }
-                        else {
-                            panic!("{}",
-                                OperationError(
-                                Self::get_name(),
-                                self.get_base_to_display(),
-                                "sub",
-                                $d2::get_name(),
-                                other.get_base_to_display())
-                            )
-                        }
-                    }
-                }
-            }
-
-            impl Mul<$d2> for $d1 {
-                type Output = GeneDimen;
-
-                fn mul(mut self, other: $d2) -> Self::Output {
-                    let mut other = other;
-                    if other.is_nd() {
-                        self.set_value(self.get_value() * other.get_value());
-                        self.to_generic()
-                    }
-                    else if self.is_nd() {
-                        other.set_value(self.get_value() * other.get_value());
-                        other.to_generic()
-                    }
-                    else {
-                        let _ = other.bcm_unit(self.get_unit());
-                        GeneDimen::init_from_operation(self.get_value() * other.get_value(),
-                        self.to_generic(),
-                        '*',
-                        other.to_generic())
-                    }
-                }
-            }
-
-            impl Div<$d2> for $d1 {
-                type Output = GeneDimen;
-
-                fn div(mut self, other: $d2) -> Self::Output {
-                    if other.is_nd() {
-                        self.set_value(self.get_value() / other.get_value());
-                        self.to_generic()
-                    }
-                    else if self.is_nd() {
-                        GeneDimen::init_from_operation(self.get_value() / other.get_value(),
-                        self.to_generic(),
-                        '/',
-                        other.to_generic())
-                    }
-                    else {
-                        let other_result = other.to_unit(self.get_unit());
-                        if let Ok(other) = other_result {
-                            GeneDimen::from(
-                                SimpDimen::init_nd( self.get_value() / other.get_value() )
-                            )
-                        }
-                        else {
-                            GeneDimen::init_from_operation(self.get_value() / other.get_value(),
-                            self.to_generic(),
-                            '/',
-                            other.to_generic())
-                        }
-                    }
-                }
-            }
-        )*
-    }
-}
-
-macro_rules! impl_ops_num_for_d {
-    ($($t:ident, $tfn:ident, $d: ident);+) => {
-        $(impl<T: Into<f64>> $t<T> for $d {
-            type Output = $d;
-
-            fn $tfn(mut self, other: T) -> $d {
-                self.set_value(self.get_value().$tfn(other.into()));
-                self
-            }
-        })*
-    }
-}
-
-macro_rules! impl_neg_for_d {
-    ($($d: ident),+) => {
-        $(impl Neg for $d {
-            type Output = $d;
-
-            fn neg(mut self) -> $d {
-                self.set_value(-self.get_value());
-                self
-            }
-        })*
-    }
-}
-
-macro_rules! impl_ops_asn_num_for_d {
-    ($($t:ident, $tfn:ident, $op:tt, $d:ident);+) => {
-        $(impl<T: Into<f64>> $t<T> for $d {
-            fn $tfn(&mut self, other: T) {
-                self.set_value(self.get_value() $op other.into());
-            }
-        })*
-    }
-}
-
-macro_rules! impl_partial_ord_for_ds {
-    ($($d:ident)?) => {
-        $(
-        impl PartialOrd for $d {
-            fn ge(&self, other: &Self) -> bool {
-                let same_unit_other = other.to_unit(self.get_unit());
-                if let Ok(new_other) = same_unit_other {
-                    self.get_value() >= new_other.get_value()
-                }
-                else {
-                    panic!("{}", OperationError(Self::get_name(), self.get_base_to_display(), "ge", Self::get_name(), other.get_base_to_display()))
-                }
-            }
-
-            fn gt(&self, other: &Self) -> bool {
-                let same_unit_other = other.to_unit(self.get_unit());
-                if let Ok(new_other) = same_unit_other {
-                    self.get_value() > new_other.get_value()
-                }
-                else {
-                    panic!("{}", OperationError(Self::get_name(), self.get_base_to_display(), "gt", Self::get_name(), other.get_base_to_display()))
-                }
-            }
-
-            fn le(&self, other: &Self) -> bool {
-                let same_unit_other = other.to_unit(self.get_unit());
-                if let Ok(new_other) = same_unit_other {
-                    self.get_value() <= new_other.get_value()
-                }
-                else {
-                    panic!("{}", OperationError(Self::get_name(), self.get_base_to_display(), "le", Self::get_name(), other.get_base_to_display()))
-                }
-            }
-
-            fn lt(&self, other: &Self) -> bool {
-                let same_unit_other = other.to_unit(self.get_unit());
-                if let Ok(new_other) = same_unit_other {
-                    self.get_value() < new_other.get_value()
-                }
-                else {
-                    panic!("{}", OperationError(Self::get_name(), self.get_base_to_display(), "lt", Self::get_name(), other.get_base_to_display()))
-                }
-            }
-
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                let same_unit_other = other.to_unit(self.get_unit());
-                if let Ok(new_other) = same_unit_other {
-                    self.get_value().partial_cmp(&new_other.get_value())
-                }
-                else {
-                    panic!("{}", OperationError(Self::get_name(), self.get_base_to_display(), "partial_cmp", Self::get_name(), other.get_base_to_display()))
-                }
-            }
-        }
-        )*
-    };
-}
-
-macro_rules! pass_ds_to_impl_ops {
-    ($($d:ident),+) => {
-        $(
-            impl_ops_d_for_d!($d, SimpDimen; $d, CompDimen; $d, GeneDimen);
-            impl_ops_num_for_d!(Add, add, $d; Sub, sub, $d; Mul, mul, $d; Div, div, $d);
-            impl_neg_for_d!($d);
-            impl_ops_asn_num_for_d!(AddAssign, add_assign, +, $d; SubAssign, sub_assign, -, $d; MulAssign, mul_assign, *, $d; DivAssign, div_assign, /, $d);
-            impl_partial_ord_for_ds!($d);
-        )*
-    };
-}
-
-macro_rules! impl_ops_asn_gd_for_gd {
-    ($($t:ident, $tfn:ident, $op:tt);+) => {
-        $(impl $t<GeneDimen> for GeneDimen {
-            fn $tfn(&mut self, other: GeneDimen) {
-                *self = (self.clone() $op other);
-            }
-        })*
-    }
-}
-
-macro_rules! impl_exp_for_ds {
-    ($($d:ident),+) => {
-        $(
-        impl UpperExp for $d {
-            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                write!(f, "{:E}{}", self.get_value(), self.get_unit())
-            }
-        }
-
-        impl LowerExp for $d {
-            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-                write!(f, "{:e}{}", self.get_value(), self.get_unit())
-            }
-        }
-        )+
-    };
-}
-
-macro_rules! impl_from_str_string_for_ds {
-    ($($d: ident),+) => {
-        $(impl From<&str> for $d {
-            fn from(value: &str) -> Self {
-                Self::soft_from(value).unwrap_or_else(|err| panic!("{}", err))
-            }
-        }
-
-        impl From<String> for $d {
-            fn from(value: String) -> Self {
-                Self::soft_from(value).unwrap_or_else(|err| panic!("{}", err))
-            }
-        })*
-    };
-}
-
-macro_rules! apply_verified_ops {
-    ($($s: expr, $o: expr, $t1: ty, $t2: tt, $op:ident, $op_name:expr)?) => {
-        $(
-            {
-                let unit = $s.get_unit();
-                let other_unit = $o.get_unit();
-                if unit == other_unit {
-                    Ok($t2 {
-                        value: $s.value.$op($o.get_value()),
-                        ..$s.clone()
-                    })
-                } else {
-                    Err(VerifiedOpError(
-                        <$t1>::get_name(),
-                        unit,
-                        $op_name,
-                        <$t1>::get_name(),
-                        other_unit,
-                    ))
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! apply_verified_ops_gd {
-    ($($s: expr, $o: expr, $op:ident, $op_name:expr)?) => {
-        $(
-            match ($s, &$o) {
-                (GenSimpDimen(d1), GenSimpDimen(d2)) => Ok(GeneDimen::from(d1.$op(d2)?)),
-                (GenCompDimen(dr1), GenCompDimen(dr2)) => Ok(GeneDimen::from(dr1.$op(dr2)?)),
-                (GenSimpDimen(_), GenCompDimen(_)) => Err(VerifiedOpError(
-                    "GeneDimen::GenSimpDimen",
-                    $s.get_unit(),
-                    $op_name,
-                    "GeneDimen::GenCompDimen",
-                    $o.get_unit(),
-                )),
-                (GenCompDimen(_), GenSimpDimen(_)) => Err(VerifiedOpError(
-                    "GeneDimen::GenCompDimen",
-                    $s.get_unit(),
-                    $op_name,
-                    "GeneDimen::GenSimpDimen",
-                    $o.get_unit(),
-                )),
-            }
-        )*
-    };
-}
-
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum SimpDimenBase {
     Length,
@@ -804,7 +400,7 @@ impl SimpDimen {
 
         let (prefixes, prefix): (&[(&str, f64)], usize) = match base {
             ND => (&ND_PREFIXES, 0),
-            _ => (&PREFIXES, 6),
+            _ => (&PREFIXES, 10),
         };
 
         SimpDimen {
@@ -841,7 +437,7 @@ impl SimpDimen {
 
     fn verify_unit(&self, unit: &str) -> Result<(usize, usize), DimenError> {
         if self.units.contains(&unit) {
-            let prefix = if self.base != ND { 6 } else { 0 };
+            let prefix = if self.base != ND { 10 } else { 0 };
             Ok((prefix, self.get_dimen_unit_pos(unit)))
         } else {
             self.separate_unit(unit).ok_or(UnitError(
@@ -862,7 +458,7 @@ impl SimpDimen {
 
     pub fn remove_prefix(&mut self) {
         self.value *= self.prefixes[self.prefix].1;
-        self.prefix = if self.base != ND { 6 } else { 0 };
+        self.prefix = if self.base != ND { 10 } else { 0 };
     }
 
     pub fn bcm_unit_unchecked(&mut self, prefix: usize, unit: usize) {
@@ -897,7 +493,7 @@ impl SimpDimen {
 
         Ok(SimpDimen {
             value: 0.0,
-            prefix: 6,
+            prefix: 10,
             unit,
             base: Custom(name),
             si_unit: unit,
@@ -948,14 +544,6 @@ impl SimpDimen {
         self.prefix
     }
 
-    pub fn get_prefixes(&self) -> &[(&str, f64)] {
-        self.prefixes
-    }
-
-    pub fn get_units(&self) -> &[&str] {
-        self.units
-    }
-
     pub fn get_unit_owner(unit: &str) -> Result<SimpDimenBase, DimenError> {
         for base in SIMP_DIMEN_BASES {
             let d = Self::get_base_info(base);
@@ -966,10 +554,6 @@ impl SimpDimen {
 
         Err(UnitError(Self::get_name(), None, unit.to_string()))
     }
-
-    pub fn get_unit_pos(&self) -> usize {
-        self.unit
-    }
 }
 
 impl DimenBasics for SimpDimen {
@@ -978,7 +562,7 @@ impl DimenBasics for SimpDimen {
     }
 
     fn bcm_si(&mut self) {
-        if (self.unit != self.si_unit || self.prefix != 6) && self.base != ND {
+        if (self.unit != self.si_unit || self.prefix != 10) && self.base != ND {
             self.remove_prefix();
             let unit = self.si_unit;
             self.value = self.conv_rates[self.unit].1(self.value);
@@ -997,23 +581,23 @@ impl DimenBasics for SimpDimen {
     }
 
     fn verified_add(&self, other: &SimpDimen) -> ModDimenRes<SimpDimen> {
-        apply_verified_ops!(self, other, SimpDimen, SimpDimen, add, "add")
+        crate::apply_verified_ops!(self, other, SimpDimen, SimpDimen, add, "add")
     }
 
     fn verified_sub(&self, other: &SimpDimen) -> ModDimenRes<SimpDimen> {
-        apply_verified_ops!(self, other, SimpDimen, SimpDimen, sub, "sub")
+        crate::apply_verified_ops!(self, other, SimpDimen, SimpDimen, sub, "sub")
     }
 
     fn verified_mul(&self, other: &SimpDimen) -> ModDimenRes<SimpDimen> {
-        apply_verified_ops!(self, other, SimpDimen, SimpDimen, mul, "mul")
+        crate::apply_verified_ops!(self, other, SimpDimen, SimpDimen, mul, "mul")
     }
 
     fn verified_div(&self, other: &SimpDimen) -> ModDimenRes<SimpDimen> {
-        apply_verified_ops!(self, other, SimpDimen, SimpDimen, div, "div")
+        crate::apply_verified_ops!(self, other, SimpDimen, SimpDimen, div, "div")
     }
 
     fn verified_pow(&self, other: &SimpDimen) -> ModDimenRes<SimpDimen> {
-        apply_verified_ops!(self, other, SimpDimen, SimpDimen, powf, "pow")
+        crate::apply_verified_ops!(self, other, SimpDimen, SimpDimen, powf, "pow")
     }
 }
 
@@ -1429,7 +1013,7 @@ impl Display for CompDimen {
 
 impl Debug for CompDimen {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.value, self.unit)
+        write!(f, "{}", self)
     }
 }
 
@@ -1446,9 +1030,23 @@ pub enum GeneDimen {
 }
 
 impl GeneDimen {
-    fn init_from_operation(value: f64, base1: GeneDimen, op: char, base2: GeneDimen) -> GeneDimen {
+    fn init_from_operation(base1: GeneDimen, op: char, base2: GeneDimen) -> GeneDimen {
+        let mut base2 = base2;
+        let c_units = base1.propagate_top_to_bottom();
+        base2.propagate_bottom_to_top(&c_units);
+
+        let val = match op {
+                '+' => base1.get_value() + base2.get_value(),
+                '-' => base1.get_value() - base2.get_value(),
+                '*' => base1.get_value() * base2.get_value(),
+                '/' => base1.get_value() / base2.get_value(),
+                '^' => base1.get_value().powf(base2.get_value()),
+                _ => unreachable!(),
+        };
+
         let (unit1, unit2) = (base1.get_unit(), CompDimen::get_parent_as_unit(&base2));
         let base = (Box::new(base1), op, Box::new(base2));
+
         let mut gd = match shorten_expression(&unit1, op, &unit2) {
             Some((unit1, Some(new_op), unit2)) => {
                 CompDimen::from_units_base(&unit1, new_op, &unit2, true)
@@ -1458,7 +1056,8 @@ impl GeneDimen {
             Some((unit, None, _)) => SimpDimen::from(unit).to_generic(),
             _ => CompDimen::new(base).unwrap().to_generic(),
         };
-        gd.set_value(value);
+
+        gd.set_value(val);
         gd
     }
 
@@ -1481,8 +1080,8 @@ impl GeneDimen {
                         &unit,
                         SimpDimen::get_unit_owner(&unit).or(Err(error))?,
                     )
-                    .unwrap()
-                    .to_generic(),
+                        .unwrap()
+                        .to_generic(),
                     _ => CompDimen::from_units_base(&unit_base.0, unit_base.1, &unit_base.2, false)
                         .or(Err(error))?
                         .to_generic(),
@@ -1678,9 +1277,9 @@ impl From<CompDimen> for GeneDimen {
 }
 
 impl<Dimen1, Dimen2> PowD<Dimen2> for Dimen1
-where
-    Dimen1: DimenBasics + DimenSetAndGet,
-    Dimen2: DimenBasics + DimenSetAndGet,
+    where
+        Dimen1: DimenBasics + DimenSetAndGet,
+        Dimen2: DimenBasics + DimenSetAndGet,
 {
     type Output = GeneDimen;
 
@@ -1700,9 +1299,7 @@ where
             self.set_value(self.get_value().powf(other.get_value()));
             self.to_generic()
         } else {
-            GeneDimen::init_from_operation(
-                self.get_value().powf(other.get_value()),
-                self.to_generic(),
+            GeneDimen::init_from_operation(self.to_generic(),
                 '^',
                 other.to_generic(),
             )
@@ -1711,9 +1308,9 @@ where
 }
 
 impl<T, Dimen> Pow<T> for Dimen
-where
-    T: Into<f64>,
-    Dimen: DimenBasics + DimenSetAndGet,
+    where
+        T: Into<f64>,
+        Dimen: DimenBasics + DimenSetAndGet,
 {
     type Output = GeneDimen;
 

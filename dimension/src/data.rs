@@ -1,6 +1,10 @@
 use std::f64::consts::PI;
 
-pub const PREFIXES: [(&str, f64); 14] = [
+pub const PREFIXES: [(&str, f64); 21] = [
+    ("Y", 1e24),
+    ("Z", 1e21),
+    ("E", 1e18),
+    ("P", 1e15),
     ("T", 1e12),
     ("G", 1e9),
     ("M", 1e6),
@@ -15,6 +19,9 @@ pub const PREFIXES: [(&str, f64); 14] = [
     ("n", 1e-9),
     ("p", 1e-12),
     ("f", 1e-15),
+    ("a", 1e-18),
+    ("z", 1e-21),
+    ("y", 1e-24),
 ];
 pub const ND_PREFIXES: [(&str, f64); 1] = [("", 1.0)];
 pub const LENGTH_INFO: ([&str; 5], [(ConvFromSi, ConvToSi); 5]) = (
