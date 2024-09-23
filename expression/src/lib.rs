@@ -227,24 +227,27 @@ impl ExprTree {
             return Err(SyntaxError);
         }
 
-        let pos_clone = pos.clone();
-        for (i, (p1, p2)) in pos_clone.iter().enumerate() {
+        let mut pos_clone = pos.clone();
+        for i in 0..pos.len() {
+            let (p1, p2) = pos_clone[i];
             let mut discount = true;
-            pos = pos.iter().enumerate().map(
+            let mut fixed_part = pos.drain((i+1)..pos.len()).into_iter().enumerate().map(
                 |(i2, (mut o, mut c))| {
-                    if i2 > i {
-                        if p1 < &o && discount {
+                    if discount {
+                        if p1 < o {
                             o -= p2 - p1;
-                            c -= p2 - p1
+                            c -= p2 - p1;
+                            pos_clone[i + 1 + i2] = (o, c);
                         }
-                        else if p1 > &o && discount {
+                        else if p1 > o {
                             c -= p2 - p1;
                             discount = false
                         }
-                        (o, c)
-                    } else { (o, c) }
+                    }
+                    (o, c)
                 }
-            ).collect();
+                ).collect::<Vec<(usize, usize)>>();
+            pos.append(&mut fixed_part);
         }
 
         for (o, c) in pos {
@@ -621,7 +624,6 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
             None
         }
         (mut x, mut y) if !both_are_default || op.0 == Tier2 => {
-            println!("Case 1");
             let mut result = None;
             let (mut recover_left, mut recover_right) = (true, true);
             let (p1, p2) = (&mut left.right, &mut right.right);
@@ -664,19 +666,16 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
 
             recover(orig_left, left, x, recover_left);
             recover(orig_right, right, y, recover_right);
-            println!("OL: {}, OR: {}", orig_left, orig_right);
 
             return Ok(result)
         }
         (x, y) if x == y => {
-            println!("Case 1.5");
             left.left = ONE;
             right.left = ONE;
 
             Some((x, MUL))
         }
         (x, mut y) if seek_multiplier(&y, &x) => {
-            println!("Case 2");
             let mut factor = x;
 
             shorten_expr(&mut y, &mut factor, DIV, false, false)?;
@@ -686,7 +685,6 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
             Some((factor, MUL))
         }
         (Operation(mut w, mut x, DIV), Operation(mut y, mut z, DIV)) => {
-            println!("Case 3");
             let result = common_operation(&mut w, &mut x, DIV, &mut y, &mut z)?;
 
             left.left = Operation(w, x, DIV);
@@ -695,7 +693,6 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
             result
         }
         (Operation(mut x, mut y, o), mut z) => {
-            println!("Case 4");
             let factor1 = common_factor(&mut x, &mut z, op)?.unwrap_or((ONE, MUL)).0; 
             let factor2 = if o == MUL {
                 common_factor(&mut y, &mut z, op)?.unwrap_or((ONE, MUL)).0
@@ -709,7 +706,6 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
             } else { None }
         }
         (x, y) => {
-            println!("Case 5");
             left.left = x;
             right.left = y;
             None
@@ -815,7 +811,6 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
             } else { true };
 
             if will_remove && can_simp {
-                println!("Distributive");
                 distributive(&mut left, orig_right, op.clone(), can_move)?
             } else { false }
         }
@@ -827,7 +822,6 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
                 let right_copy = take_or_clone(orig_right, can_move);
                 right = get_expr_opr_by_op(right_copy, left_op, true);
                 recover_right = true;
-                    println!("Match Equivalent");
 
                 let changed = match_equivalent(&mut left, &mut right, op.clone(), false, can_move)?;
 
@@ -837,17 +831,12 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
             }
         }
         _ => {
-            println!("Common Factor");
             let mut right_copy = take_or_clone(orig_right, can_move);
             let mut left_copy = left.as_expr_tree();
-            println!("1: ({}) ({}) {}", left_copy, right_copy, op);
 
             let changed = if let Some(cf) = common_factor(&mut left_copy, &mut right_copy, tuple_op)? {
-                println!("2: ({}) ({}) {}", left_copy, right_copy, op);
                 shorten_expr(&mut left_copy, &mut right_copy, op.clone(), true, true)?;
-                println!("3: {}", left_copy);
                 left_copy = ExprTree::make_opr(left_copy, cf.0, cf.1);
-                println!("4: {}", left_copy);
 
                 true
             } else {
@@ -873,6 +862,5 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
         left
     }.propagate(ExprTree::clean)?;
 
-    println!("O: L: {} R: {}", orig_left, orig_right);
     Ok(changed)
 }
