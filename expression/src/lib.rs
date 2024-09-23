@@ -8,20 +8,22 @@ use self::ExprUnit::*;
 use self::Tier::*;
 
 type Expr = Vec<ExprTree>;
-type ExprOption = Option<ExprTree>;
-type ExprResult = Result<ExprOption, ExprError>;
+type ExprResult<T> = Result<T, ExprError>;
+type ExprTreeResult = ExprResult<ExprTree>;
+type CommonFactor = Option<(ExprTree, ExprUnit)>;
 
 const ADD: ExprUnit = Op(Tier1, true);
 const SUB: ExprUnit = Op(Tier1, false);
 const MUL: ExprUnit = Op(Tier2, true);
 const DIV: ExprUnit = Op(Tier2, false);
 const POW: ExprUnit = Op(Tier3, true);
+const ROOT: ExprUnit = Op(Tier3, false);
 
 const ZERO: ExprTree = Leaf(Num(0.0));
 const ONE: ExprTree = Leaf(Num(1.0));
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-enum Tier {
+pub enum Tier {
     Tier1 = 1,
     Tier2,
     Tier3,
@@ -96,12 +98,16 @@ impl Display for ExprUnit {
             &MUL => write!(f, "*"),
             &DIV => write!(f, "/"),
             &POW => write!(f, "^"),
-            _ => unreachable!()
+            &ROOT => unreachable!()
         }
     }
 }
 
-fn push_expr_leaf(building_leaf: &mut String, expr: &mut Expr, new: Option<ExprTree>) -> Result<(), ExprError> {
+fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
+        Op(tuple.0, tuple.1)
+}
+
+fn push_expr_leaf(building_leaf: &mut String, expr: &mut Expr, new: Option<ExprTree>) -> ExprResult<()> {
     if !building_leaf.is_empty() {
         let value = if let Ok(n) = building_leaf.parse::<f64>() {
             building_leaf.clear();
@@ -183,12 +189,8 @@ fn operate_nums(num1: f64, op: (Tier, bool), num2: f64) -> ExprTree {
         (Tier2, true) => Leaf(Num(num1 * num2)),
         (Tier2, false) => Leaf(Num(num1 / num2)),
         (Tier3, true) => Leaf(Num(num1.powf(num2))),
-        _ => unreachable!()
+        (Tier3, false) => Leaf(Num(num1.powf(1.0 / num2))),
     }
-}
-
-fn format_expr(expr: &[ExprTree]) -> String {
-    expr.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(" ")
 }
 
 #[derive(Debug, Clone)]
@@ -204,12 +206,12 @@ macro_rules! push_expr_leaf {
 }
 
 impl ExprTree {
-    pub fn new(expr_str: &str) -> Result<ExprTree, ExprError> {
+    pub fn new(expr_str: &str) -> ExprTreeResult {
         let expr = Self::parse_expr(expr_str)?;
         Self::build(expr)
     } 
 
-    fn build(mut expr: Expr) -> Result<ExprTree, ExprError> {
+    fn build(mut expr: Expr) -> ExprTreeResult {
         let mut pos = vec![];
         let mut open_brackets = vec![];
 
@@ -259,7 +261,7 @@ impl ExprTree {
         expr.remove(0).propagate(Self::clean)
     }
 
-    fn parse_expr(expr_str: &str) -> Result<Expr, ExprError> {
+    fn parse_expr(expr_str: &str) -> ExprResult<Expr> {
         let mut expr = vec![];
         let mut expr_unit = String::new();
 
@@ -313,7 +315,7 @@ impl ExprTree {
         }
     }
 
-    pub fn propagate(self, key: fn(ExprTree, ExprTree, ExprUnit) -> Result<ExprTree, ExprError>) -> Result<ExprTree, ExprError> {
+    pub fn propagate(self, key: fn(ExprTree, ExprTree, ExprUnit) -> ExprTreeResult) -> ExprTreeResult {
         match self {
             Operation(child1, child2, op) => {
                 let child1 = child1.propagate(key)?;
@@ -324,24 +326,27 @@ impl ExprTree {
         }
     }
 
-    fn organize(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> Result<ExprTree, ExprError> {
+    fn organize(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> ExprTreeResult {
         let et = match (child1, child2, op) {
             (c1, Leaf(Num(n)), MUL) => Self::make_opr(Leaf(Num(n)), c1, MUL),
             (c1, Operation(node1, node2, MUL), MUL) if node1.is_num() => {
                 let multiplier = Operation(node2, Box::new(c1), MUL);
                 Operation(node1, Box::new(multiplier), MUL)
             }
+            (Operation(node1, node2, op), Leaf(c2), MUL) => {
+                Self::make_opr(Leaf(c2), Operation(node1, node2, op), MUL)
+            }
             (Operation(node1, node2, POW), c2, POW) => {
                 let pow = Self::make_opr(*node2, c2, MUL);
                 Self::make_opr(*node1, pow, POW)
             },
             (c1, Operation(node1, node2, DIV), MUL) => {
-                let dividend = Self::make_opr(c1, *node1, MUL);
-                Self::make_opr(dividend, *node2, DIV)
+                let factor1 = Self::make_opr(c1, *node1, MUL);
+                Self::make_opr(factor1, *node2, DIV)
             },
             (Operation(node1, node2, DIV), c2, MUL) => {
-                let dividend = Self::make_opr(*node1, c2, MUL);
-                Self::make_opr(dividend, *node2, DIV)
+                let factor1 = Self::make_opr(*node1, c2, MUL);
+                Self::make_opr(factor1, *node2, DIV)
             }
             (child1, child2, op) => Self::make_opr(child1, child2, op)
         };
@@ -349,7 +354,7 @@ impl ExprTree {
         Ok(et)
     }
 
-    fn clean(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> Result<ExprTree, ExprError> {
+    fn clean(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> ExprTreeResult {
         let mut et = Self::organize(child1, child2, op)?;
 
         et = match et.unwrap_opr() {
@@ -421,6 +426,7 @@ impl Display for ExprTree {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Leaf(x) => write!(f, "{}", x),
+            Operation(x, y, ROOT) => write!(f, "{} 1 {} / ^", x, y),
             Operation(x, y, z) => write!(f, "{} {} {}", x, y, z)
         }
     }
@@ -454,16 +460,16 @@ impl PartialEq for ExprTree {
     }
 }
 
-pub fn apply_simplifications(mut child1: ExprTree, mut child2: ExprTree, mut op: ExprUnit) -> Result<ExprTree, ExprError> {
+pub fn apply_simplifications(mut child1: ExprTree, mut child2: ExprTree, mut op: ExprUnit) -> ExprTreeResult {
     let mut changed = true;
 
     while changed {
-        changed = shorten_expr(&mut child1, &mut child2, op.clone(), true, true);
-        let cleaned = child1.propagate(ExprTree::clean)?;
-        if let Operation(c1, c2, new_op) = cleaned {
+        changed = false;
+        shorten_expr(&mut child1, &mut child2, op.clone(), true, true)?;
+        if let Operation(c1, c2, new_op) = child1 {
             (child1, child2, op) = (*c1, *c2, new_op);
         } else {
-            return Ok(cleaned);
+            return Ok(child1);
         }
     };
 
@@ -486,7 +492,7 @@ impl ExprOper {
     fn as_expr_tree(self) -> ExprTree {
         if self.is_default {
             self.left
-        } else { Operation(Box::new(self.left), Box::new(self.right), Op(self.op.0, self.op.1)) }
+        } else { Operation(Box::new(self.left), Box::new(self.right), tuple_to_op(self.op)) }
     }
 }
 
@@ -503,19 +509,20 @@ fn make_opr_from_ref(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit, ca
     ExprTree::make_opr(left, right, op)
 }
 
-fn distributive(left: &mut ExprOper, right: &mut ExprTree, op: ExprUnit, can_move: bool) -> bool {
-    let changed1 = shorten_expr(&mut left.left, right, op.clone(), false, false);
-    let changed2 = shorten_expr(&mut left.right, right, op.clone(), can_move, changed1);
+fn distributive(left: &mut ExprOper, right: &mut ExprTree, op: ExprUnit, can_move: bool) -> ExprResult<bool> {
+    let changed1 = shorten_expr(&mut left.left, right, op.clone(), false, false)?;
+    let can_move2 = changed1 && can_move;
+    let changed2 = shorten_expr(&mut left.right, right, op.clone(), can_move2, changed1)?;
 
     if !(changed1 || changed2) {
-        return false;
+        return Ok(false);
     } else if !changed1 {
         left.left = make_opr_from_ref(&mut left.left, right, op, can_move);
     }
-    true
+    Ok(true)
 }
 
-fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, invert: bool, can_move: bool) -> bool {
+fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, invert: bool, can_move: bool) -> ExprResult<bool> {
     let (a, mut b) = (&mut left.left, &mut left.right);
     let (mut x, mut y) = (&mut right.left, &mut right.right);
 
@@ -546,11 +553,11 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
         }
     };
 
-    let changed1 = shorten_expr(a, x, op1.clone(), can_move, false);
-    let changed2 = shorten_expr(b, y, op2.clone(), can_move2, changed1);
+    let changed1 = shorten_expr(a, x, op1.clone(), can_move, false)?;
+    let changed2 = shorten_expr(b, y, op2.clone(), can_move2, changed1)?;
     
     if !(changed1 || changed2) {
-        return false;
+        return Ok(false);
     } else if !changed1 {
         *a = make_opr_from_ref(a, x, op1, can_move);
     }
@@ -559,7 +566,7 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
     let final_op = Op(main_op_info.0, final_op_incr);
 
     if (!left.op.1 && !main_op_info.1) && right.op.1 {
-        if shorten_expr(&mut b, &mut a, final_op.clone(), true, false) {
+        if shorten_expr(&mut b, &mut a, final_op.clone(), true, false)? {
             *left = get_expr_opr_by_op(b, final_op, false);
         } else {
             (left.left, left.right) = (b, a);
@@ -570,40 +577,149 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
         (left.left, left.right) = (a, b);
         left.op = final_op.op_as_tuple();
     }
-    true
+    Ok(true)
 }
 
-fn common_factor(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit,
-                 invert: bool, can_move: bool, can_simp: bool) -> bool {    
-    let (a, b) = (&mut left.left, &mut left.right);
-    let (mut x, mut y) = (&mut right.left, &mut right.right);
+fn insert_reduced_pow_value(source: &mut ExprTree, val: ExprTree, new_val: &ExprTree,
+                            orig_pow: ExprTree, pow: ExprTree) {
+    let multiplier1 = ExprTree::make_opr(new_val.clone(), pow, POW);
+    let multiplier2 = ExprTree::make_opr(val, orig_pow, POW);
 
-    if invert {
-        (x, y) = (y, x);
+    *source = ExprTree::make_opr(multiplier1, multiplier2, MUL);
+}
+
+fn recover(source: &mut ExprTree, mut oper: ExprOper, l: ExprTree, can_recover: bool) {
+    if can_recover {
+        oper.left = l;
+        *source = oper.as_expr_tree();
     }
+}
 
-    if a == x && left.op.1 {
-        shorten_expr(b, y, op, can_move, true);
-        true
-    } else if a == x {
-        if let (Leaf(Num(n1)), Leaf(Num(n2))) = (b, y) {
-            let sum = operate_nums(*n1, op.op_as_tuple(), *n2);
-            let dividend = ExprTree::make_opr(sum, take(a), MUL);
-            let divisor = operate_nums(*n1, (Tier2, true), *n2);
+fn common_operation(a: &mut ExprTree, b: &mut ExprTree, op: ExprUnit,
+                    x: &mut ExprTree, y: &mut ExprTree) -> ExprResult<CommonFactor> {
+    let factor1 = common_factor(a, x, (Tier1, true))?.unwrap_or((ONE, MUL)).0; 
+    let factor2 = common_factor(b, y, (Tier1, true))?.unwrap_or((ONE, MUL)).0; 
 
-            left.left = dividend;
-            left.right = divisor;
+    Ok(
+        if factor1 != ONE {
+            Some((ExprTree::make_opr(factor1, factor2, op), MUL))
+        } else if factor2 != ONE {
+            Some((factor2, op))
+        } else { None }
+      )
+}
 
-            true
-        } else {
-            false
+fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier, bool)) -> ExprResult<CommonFactor> {
+    let mut left = get_expr_opr_by_op(take(orig_left), POW, true);
+    let mut right = get_expr_opr_by_op(take(orig_right), POW, true);
+    let both_are_default = left.is_default && right.is_default;
+
+    let result = match (take(&mut left.left), take(&mut right.left)) {
+        (x, y) if x == ONE || y == ONE => {
+            left.left = x;
+            right.left = y;
+            None
         }
-    } else if (b == y && left.op.0 == Tier2) && can_simp {
-        shorten_expr(a, x, op, can_move, true);
-        true
-    } else {
-        false
-    }
+        (mut x, mut y) if !both_are_default || op.0 == Tier2 => {
+            println!("Case 1");
+            let mut result = None;
+            let (mut recover_left, mut recover_right) = (true, true);
+            let (p1, p2) = (&mut left.right, &mut right.right);
+
+            if (p1.is_num() && p2.is_num()) || op == (Tier2, false) {
+                if let Some(mut cf) = common_factor(&mut x, &mut y, (Tier1, true))? {
+                    let cases = if let (Leaf(Num(n1)), Leaf(Num(n2))) = (&p1, &p2) {
+                        (n1 < n2, n1 > n2)
+                    } else {
+                        (false, true)
+                    };
+
+                    if op == (Tier2, true) {
+                        let mut cf_oper = get_expr_opr_by_op(cf.0, POW, true);
+                        cf_oper.right = ExprTree::make_opr(p1.clone(), p2.clone(), ADD);
+                        cf_oper.is_default = false;
+                        cf.0 = cf_oper.as_expr_tree();
+                    } else if cases.0 {
+                        let pow = ExprTree::make_opr(p2.clone(), p1.clone(), SUB);
+                        insert_reduced_pow_value(orig_right, take(&mut y), &cf.0, take(p2), pow);
+                        recover_right = false;
+                    } else if cases.1 {
+                        let pow = ExprTree::make_opr(p1.clone(), p2.clone(), SUB);
+                        insert_reduced_pow_value(orig_left, take(&mut x), &cf.0, take(p1), pow);
+                        recover_left = false;
+                    } 
+
+                    if op == (Tier2, false) {
+                        cf.0 = ONE;
+                    }
+
+                    result = Some(cf);
+                }
+            } else if op.0 == Tier2 {
+                if let Some(mut cf) = common_factor(&mut left.right, &mut right.right, (Tier1, true))? {
+                    cf.1 = POW;
+                    result = Some(cf);
+                }
+            }
+
+            recover(orig_left, left, x, recover_left);
+            recover(orig_right, right, y, recover_right);
+            println!("OL: {}, OR: {}", orig_left, orig_right);
+
+            return Ok(result)
+        }
+        (x, y) if x == y => {
+            println!("Case 1.5");
+            left.left = ONE;
+            right.left = ONE;
+
+            Some((x, MUL))
+        }
+        (x, mut y) if seek_multiplier(&y, &x) => {
+            println!("Case 2");
+            let mut factor = x;
+
+            shorten_expr(&mut y, &mut factor, DIV, false, false)?;
+            left.left = ONE;
+            right.left = y;
+
+            Some((factor, MUL))
+        }
+        (Operation(mut w, mut x, DIV), Operation(mut y, mut z, DIV)) => {
+            println!("Case 3");
+            let result = common_operation(&mut w, &mut x, DIV, &mut y, &mut z)?;
+
+            left.left = Operation(w, x, DIV);
+            right.left = Operation(y, z, DIV);
+
+            result
+        }
+        (Operation(mut x, mut y, o), mut z) => {
+            println!("Case 4");
+            let factor1 = common_factor(&mut x, &mut z, op)?.unwrap_or((ONE, MUL)).0; 
+            let factor2 = if o == MUL {
+                common_factor(&mut y, &mut z, op)?.unwrap_or((ONE, MUL)).0
+            } else { ONE }; 
+
+            left.left = Operation(x, y, o);
+            right.left = z;
+
+            if factor1 != ONE || factor2 != ONE {
+                Some((ExprTree::make_opr(factor1, factor2, MUL), MUL))
+            } else { None }
+        }
+        (x, y) => {
+            println!("Case 5");
+            left.left = x;
+            right.left = y;
+            None
+        }
+    };
+
+    *orig_left = left.as_expr_tree();
+    *orig_right = right.as_expr_tree();
+
+    Ok(result)
 }
 
 fn get_next_op(op: ExprUnit, always_true: bool) -> ExprUnit {
@@ -630,6 +746,7 @@ fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
         Operation(c1, c2, MUL) => {
             seek_multiplier(c1, target) || seek_multiplier(c2, target)
         },
+        Operation(c1, _, POW) => seek_multiplier(c1, target),
         expr if expr == target => true,
         _ => false
     }
@@ -645,7 +762,7 @@ fn shorten_expr_early(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit,
                  can_move: bool, ensure_change: bool) -> Option<bool> {
     match (&left, &right) {
         (Leaf(Num(n1)), Leaf(Num(n2))) => {
-            *left = ExprTree::make_opr(Leaf(Num(*n1)), Leaf(Num(*n2)), op);
+            *left = operate_nums(*n1, op.op_as_tuple(), *n2);
             return Some(true);
         },
         (Leaf(Unk(_)), Leaf(Num(_))) | (Leaf(Num(_)), Leaf(Unk(_))) => {
@@ -654,8 +771,8 @@ fn shorten_expr_early(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit,
             }
             return Some(false);
         },
-        (l, r) if l == r => {
-            let new_op = get_next_op(op.clone(), true);
+        (l, r) if l == r && op.op_as_tuple().0 == Tier2 => {
+            let new_op = POW;
 
             let mut left_opr = get_expr_opr_by_op(take(left), new_op.clone(), true);
             left_opr.is_default = false;
@@ -672,9 +789,9 @@ fn shorten_expr_early(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit,
 }
 
 pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
-                    op: ExprUnit, can_move: bool, ensure_change: bool) -> bool {
+                    op: ExprUnit, can_move: bool, ensure_change: bool) -> ExprResult<bool> {
     if let Some(changed) = shorten_expr_early(orig_left, orig_right, op.clone(), can_move, ensure_change){
-        return changed;
+        return Ok(changed);
     }
 
     let mut left = if let Some(op) = orig_right.get_op() {
@@ -687,68 +804,75 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
     let tuple_op = op.clone().op_as_tuple();
     let mut right = ExprOper::new(ZERO, ZERO, (Tier1, true), true);
     let mut recover_right = false;
-    let mut can_simp = !left.is_default;
+    let can_simp = !left.is_default;
 
     let changed = match tuple_op.0.get_num() - left.op.0.get_num() {
         1 => {
-            let will_remove = if op == Op(Tier2, false) {
+            let will_remove = if op == DIV {
                 seek_multiplier(&left.left, orig_right) || seek_multiplier(&left.right, orig_right)
-            } else if op == Op(Tier2, true) {
+            } else if op == MUL {
                 seek_divisor(&left.left, orig_right) || seek_divisor(&left.right, orig_right)
             } else { true };
 
             if will_remove && can_simp {
-                distributive(&mut left, orig_right, op.clone(), can_move)
+                println!("Distributive");
+                distributive(&mut left, orig_right, op.clone(), can_move)?
             } else { false }
         }
         0 => {
             if let Tier3 = left.op.0 {
                 false
             } else {
-                let left_op = Op(left.op.0, left.op.1);
+                let left_op = tuple_to_op(left.op);
                 let right_copy = take_or_clone(orig_right, can_move);
                 right = get_expr_opr_by_op(right_copy, left_op, true);
                 recover_right = true;
+                    println!("Match Equivalent");
 
-                let changed = match_equivalent(&mut left, &mut right, op.clone(), false, can_move);
+                let changed = match_equivalent(&mut left, &mut right, op.clone(), false, can_move)?;
 
                 if !changed {
-                    match_equivalent(&mut left, &mut right, op.clone(), true, can_move)
+                    match_equivalent(&mut left, &mut right, op.clone(), true, can_move)?
                 } else { changed }
             }
         }
-        -1 => {
-            let left_op = Op(left.op.0, left.op.1);
-            let right_copy = take_or_clone(orig_right, can_move);
-            right = get_expr_opr_by_op(right_copy, left_op, true);
-            recover_right = true;
-            let op = Op(Tier1, tuple_op.1);
-
-            can_simp = can_simp || !right.is_default;
-            let changed = common_factor(&mut left, &mut right, op.clone(), false, can_move, can_simp);
-
-            let left_is_symmetric = left.left == left.right;
-            let right_is_symmetric = right.left == right.right;
-            let some_is_symmetric = left_is_symmetric || right_is_symmetric;
-
-            if (!changed && left.op == MUL.op_as_tuple()) && !some_is_symmetric {
-                common_factor(&mut left, &mut right, op, true, can_move, true)
-            } else { changed }
-        }
         _ => {
-            false
+            println!("Common Factor");
+            let mut right_copy = take_or_clone(orig_right, can_move);
+            let mut left_copy = left.as_expr_tree();
+            println!("1: ({}) ({}) {}", left_copy, right_copy, op);
+
+            let changed = if let Some(cf) = common_factor(&mut left_copy, &mut right_copy, tuple_op)? {
+                println!("2: ({}) ({}) {}", left_copy, right_copy, op);
+                shorten_expr(&mut left_copy, &mut right_copy, op.clone(), true, true)?;
+                println!("3: {}", left_copy);
+                left_copy = ExprTree::make_opr(left_copy, cf.0, cf.1);
+                println!("4: {}", left_copy);
+
+                true
+            } else {
+                *orig_right = right_copy;
+                false
+            };
+
+            left = get_expr_opr_by_op(left_copy, MUL, false);
+            changed
         }
     };
     
     left.is_default = left.is_default && !changed;
     let left = left.as_expr_tree();
+
     if recover_right && can_move {
         *orig_right = right.as_expr_tree();
     }
-    if !changed && ensure_change {
-        *orig_left = ExprTree::make_opr(left, take_or_clone(orig_right, can_move), op);
+
+    *orig_left = if !changed && ensure_change {
+        ExprTree::make_opr(left, take_or_clone(orig_right, can_move), op)
     } else {
-        *orig_left = left;
-    }
-    changed
+        left
+    }.propagate(ExprTree::clean)?;
+
+    println!("O: L: {} R: {}", orig_left, orig_right);
+    Ok(changed)
 }
