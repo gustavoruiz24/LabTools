@@ -1,17 +1,23 @@
-use crate::error::DimenError;
-use crate::error::{NewDimenRes, ModDimenRes};
-use crate::GeneDimen;
+use expression::expr_structs::ExprTree;
 
-pub trait PowD<Rhs = Self> {
-    type Output;
+use crate::error::{DimenError, OperRes};
+use crate::error::ModDimenRes;
+use crate::{CustomUnits, GeneDimen};
 
-    fn powd(self, other: Rhs) -> Self::Output;
+pub trait ParseErr<T> {
+    fn parse_err(self) -> Result<T, DimenError>;
 }
 
 pub trait Pow<Rhs = Self> {
     type Output;
 
     fn pow(self, other: Rhs) -> Self::Output;
+}
+
+pub trait PowD<Rhs = Self> {
+    type Output;
+
+    fn powd(self, other: Rhs) -> Self::Output;
 }
 
 pub trait DimenBasics {
@@ -26,7 +32,7 @@ pub trait DimenBasics {
         d
     }
 
-    fn to_unit<T: AsRef<str>>(&self, unit: T) -> ModDimenRes<Self>
+    fn to_unit(&self, unit: &[&str]) -> ModDimenRes<Self>
         where
             Self: Sized + Clone,
     {
@@ -37,47 +43,47 @@ pub trait DimenBasics {
 
     fn bcm_si(&mut self);
 
-    fn bcm_unit<T: AsRef<str>>(&mut self, unit: T) -> Result<(), DimenError>;
+    fn bcm_unit(&mut self, unit: &[&str]) -> Result<(), DimenError>;
 
     fn to_generic(self) -> GeneDimen;
 
-    fn verified_add(&self, other: &Self) -> ModDimenRes<Self>
+    fn verified_add(&mut self, other: GeneDimen) -> OperRes
         where
             Self: Sized;
 
-    fn verified_sub(&self, other: &Self) -> ModDimenRes<Self>
+    fn verified_sub(&mut self, other: GeneDimen) -> OperRes
         where
             Self: Sized;
 
-    fn verified_mul(&self, other: &Self) -> ModDimenRes<Self>
+    fn verified_mul(&mut self, other: GeneDimen) -> OperRes
         where
             Self: Sized;
 
-    fn verified_div(&self, other: &Self) -> ModDimenRes<Self>
+    fn verified_div(&mut self, other: GeneDimen) -> OperRes
         where
             Self: Sized;
 
-    fn verified_pow(&self, other: &Self) -> ModDimenRes<Self>
+    fn verified_pow(&mut self, other: GeneDimen) -> OperRes
         where
             Self: Sized;
 }
 
 pub trait DimenSetAndGet {
-    fn set_value(&mut self, other: f64);
+    fn set_value(&mut self, other: ExprTree);
 
-    fn get_value(&self) -> f64;
+    fn get_value(&self) -> ExprTree;
 
-    fn get_unit(&self) -> String;
+    fn get_move_value(&mut self) -> ExprTree;
+
+    fn get_unit(&self) -> ExprTree;
+
+    fn get_move_unit(&mut self) -> ExprTree;
+
+    fn get_custom_units(&self) -> CustomUnits;
+
+    fn get_move_custom_units(&mut self) -> CustomUnits;
 
     fn get_base_to_display(&self) -> String;
 
     fn get_name() -> &'static str;
-}
-
-pub trait DimenBaseDependents<Base> {
-    fn init(value: f64, unit: &str, base: Base) -> NewDimenRes<Self>
-        where
-            Self: Sized;
-
-    fn get_base(&self) -> Base;
 }

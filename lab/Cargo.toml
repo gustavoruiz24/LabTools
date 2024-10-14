@@ -8,3 +8,4 @@ dimension = { path = "../dimension" }
 compare = { path = "../compare" }
 dev_tests = { path = "../dev_tests" }
 array_maker = { path = "../array_maker" }
+expression = { path = "../expression" }

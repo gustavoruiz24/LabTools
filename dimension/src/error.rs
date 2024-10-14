@@ -1,8 +1,11 @@
 use super::*;
 use std::fmt::{self, Debug, Display, Formatter};
 
+use expression::error::ExprError;
+
 pub type NewDimenRes<Dimen> = Result<Dimen, DimenError>;
 pub type ModDimenRes<Dimen> = Result<Dimen, DimenError>;
+pub type OperRes = Result<GeneDimen, DimenError>;
 
 pub type OwnerName = &'static str;
 pub type OwnerBase = String;
@@ -11,6 +14,7 @@ pub type Unit = String;
 pub type Operator = Option<String>;
 pub type Operation = &'static str;
 pub type Attribute = &'static str;
+pub type Expression = String;
 
 #[derive(Clone, PartialEq)]
 pub enum DimenError {
@@ -19,8 +23,8 @@ pub enum DimenError {
     InvalidValError(OwnerName),
     OperatorError(Operator),
     OperationError(OwnerName, OwnerBase, Operation, OwnerName, OwnerBase),
-    VerifiedOpError(OwnerName, Unit, Operation, OwnerName, Unit),
-    BracketError(Unit),
+    SyntaxError(Expression),
+    MathError(Expression)
 }
 
 impl Display for DimenError {
@@ -71,19 +75,18 @@ impl Display for DimenError {
                     name1, base1, operation, name2, base2
                 )
             }
-            VerifiedOpError(owner_name1, unit1, operation, owner_name2, unit2) => {
+            SyntaxError(expression) => {
                 write!(
                     f,
-                    "VerifiedOpError: `{}` with unit `{}` expected a `{}` with unit `{}` in the `verified_{}` operation \
-                    but received `{}` with unit `{}`.",
-                    owner_name1, unit1, owner_name1, unit1, operation, owner_name2, unit2
+                    "SyntaxError: The syntax of `{}` expression is invalid.",
+                    expression
                 )
             }
-            BracketError(unit) => {
+            MathError(expression) => {
                 write!(
                     f,
-                    "BracketError: The brackets in `{}` must be balanced.",
-                    unit
+                    "MathError: The `{}` expression has a math error.",
+                    expression
                 )
             }
         }
@@ -93,5 +96,14 @@ impl Display for DimenError {
 impl Debug for DimenError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl From<ExprError> for DimenError {
+    fn from(err: ExprError) -> DimenError {
+        match err {
+            ExprError::SyntaxError(expression) => SyntaxError(expression),
+            ExprError::MathError(expression) => MathError(expression)
+        }
     }
 }

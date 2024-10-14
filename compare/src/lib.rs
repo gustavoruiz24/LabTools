@@ -8,6 +8,9 @@ use rand::prelude::*;
 use std::fmt::{Display, Formatter};
 use std::ops::Add;
 use dimension::traits::{DimenBasics, DimenSetAndGet};
+use expression::expr_structs::ExprTree::Leaf;
+use expression::expr_structs::ExprUnit::Num;
+use expression::ZERO;
 
 pub trait CompareBasics {
     fn as_f64(&self) -> f64;
@@ -61,11 +64,14 @@ impl CompareBasics for u32 {
 
 impl CompareBasics for GeneDimen {
     fn as_f64(&self) -> f64 {
-        self.get_value()
+        let value = self.get_value();
+        if let Leaf(Num(num)) = value {
+            num
+        } else { 0.0 }
     }
 
     fn zero() -> Self {
-        SimpDimen::init_nd(0.0).to_generic()
+        SimpDimen::init_nd(ZERO).to_generic()
     }
 
     fn div_f64(self, other: f64) -> Self {

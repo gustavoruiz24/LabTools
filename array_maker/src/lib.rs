@@ -38,9 +38,9 @@ mod tests {
     fn test1() {
         let current = rand_by_key(5, 0, 10, |x| x as f64, None);
         println!("{:?}", current);
-        let current = rand_by_key(5, 0, 10, |x| x as f64, Some(|a, b| a.total_cmp(b)));
+        let current = rand_by_key(5, 0, 10, |x| x as f64, Some(|a: &f64, b| a.total_cmp(b)));
         println!("{:?}", current);
-        let current = rand_by_key(5, 0, 10, |x| x as f64, Some(|a, b| b.total_cmp(a)));
+        let current = rand_by_key(5, 0, 10, |x| x as f64, Some(|a, b: &f64| b.total_cmp(a)));
         println!("{:?}", current);
     }
 
