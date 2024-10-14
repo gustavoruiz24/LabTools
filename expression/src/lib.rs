@@ -1,8 +1,15 @@
+pub mod api;
+pub mod expr_structs;
+pub mod macros;
+pub mod error;
+pub mod traits;
+
 use std::mem::take;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, LowerExp, UpperExp};
 
-use self::ExprError::*;
+use expr_structs::*;
+use error::ExprError;
 use self::ExprTree::{Leaf, Operation};
 use self::ExprUnit::*;
 use self::Tier::*;
@@ -12,18 +19,19 @@ type ExprResult<T> = Result<T, ExprError>;
 type ExprTreeResult = ExprResult<ExprTree>;
 type CommonFactor = Option<(ExprTree, ExprUnit)>;
 
-const ADD: ExprUnit = Op(Tier1, true);
-const SUB: ExprUnit = Op(Tier1, false);
-const MUL: ExprUnit = Op(Tier2, true);
-const DIV: ExprUnit = Op(Tier2, false);
-const POW: ExprUnit = Op(Tier3, true);
-const ROOT: ExprUnit = Op(Tier3, false);
+pub const ADD: ExprUnit = Op(Tier1, true);
+pub const SUB: ExprUnit = Op(Tier1, false);
+pub const MUL: ExprUnit = Op(Tier2, true);
+pub const DIV: ExprUnit = Op(Tier2, false);
+pub const POW: ExprUnit = Op(Tier3, true);
+pub const ROOT: ExprUnit = Op(Tier3, false);
 
-const ZERO: ExprTree = Leaf(Num(0.0));
-const ONE: ExprTree = Leaf(Num(1.0));
+pub const ZERO: ExprTree = Leaf(Num(0.0));
+pub const ONE: ExprTree = Leaf(Num(1.0));
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub enum Tier {
+    #[default]
     Tier1 = 1,
     Tier2,
     Tier3,
@@ -61,406 +69,33 @@ impl PartialOrd for Tier {
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub enum ExprError {
-    SyntaxError,
-    MathError,
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum ExprUnit {
-    Num(f64),
-    Unk(String),
-    // Tier 1 = add/sub; Tier 2 = mul/div; Tier 3 = pow;
-    // bool = increases or not
-    Op(Tier, bool),
-    OpenBracket,
-    CloseBracket,
-}
-
-impl ExprUnit {
-    fn op_as_tuple(self) -> (Tier, bool) {
-        if let Op(tier, incr) = self {
-            (tier, incr)
-        } else { panic!("Called op_as_tuple method on an non-Op ExprTree.") }
-    }
-}
-
-impl Display for ExprUnit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Num(x) => write!(f, "{}", x),
-            Unk(x) => write!(f, "{}", x),
-            OpenBracket => write!(f, "("),
-            CloseBracket => write!(f, ")"),
-            &ADD => write!(f, "+"),
-            &SUB => write!(f, "-"),
-            &MUL => write!(f, "*"),
-            &DIV => write!(f, "/"),
-            &POW => write!(f, "^"),
-            &ROOT => unreachable!()
-        }
-    }
-}
-
-fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
+pub fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
         Op(tuple.0, tuple.1)
 }
 
-fn push_expr_leaf(building_leaf: &mut String, expr: &mut Expr, new: Option<ExprTree>) -> ExprResult<()> {
-    if !building_leaf.is_empty() {
-        let value = if let Ok(n) = building_leaf.parse::<f64>() {
-            building_leaf.clear();
-            Num(n)
-        } else { Unk(take(building_leaf)) };
-
-        expr.push(Leaf(value));
-    }
-
-    if let (Some(Leaf(Unk(_) | Num(_) | OpenBracket)), true) = (expr.last(), expr.len() > 1) {
-        if let Leaf(Unk(_) | Num(_) | CloseBracket) = &expr[expr.len() - 2] {
-            expr.insert(expr.len() - 1, Leaf(MUL))
-        }
-    }
-
-    match (new, expr.last_mut()) {
-        (Some(Leaf(Op(Tier2 | Tier3, _))), Some(Leaf(Op(_, _))) | None) => return Err(SyntaxError),
-        (Some(Leaf(Op(Tier1, x))), Some(Leaf(Op(Tier1, y)))) => {
-            *y = !(x ^ *y)
-        }
-        (Some(Leaf(ADD)), Some(Leaf(Op(_, _))) | None) => {}
-        (Some(Leaf(SUB)), Some(Leaf(OpenBracket)) | None) => {
-            expr.push(ZERO);
-            expr.push(Leaf(SUB));
-        }
-        (Some(Leaf(Op(x, y))), _) => expr.push(Leaf(Op(x, y))),
-        (Some(nt), Some(Leaf(Unk(_) | Num(_) | CloseBracket))) if nt != Leaf(CloseBracket) => {
-            expr.push(Leaf(MUL));
-            expr.push(nt);
-        }
-        (Some(nt), _) => expr.push(nt),
-        _ => {}
-    }
-
-    Ok(())
+pub fn operate_and_simplify(left: ExprTree, right: ExprTree, op: ExprUnit) -> ExprTreeResult {
+    ExprTree::make_opr(left, right, op)
+        .propagate(ExprTree::clean, |x| Ok(x))?
+        .propagate(apply_simplifications, |x| Ok(x))
 }
 
-fn condense_op(expr: &mut Expr, tier: Tier) {
-    let mut pos: Vec<(usize, bool)> = vec![];
-    let mut last_is_target = false;
-
-    for (i, building_leaf) in expr.iter().enumerate() {
-        match building_leaf {
-            Leaf(SUB) if last_is_target => {
-                pos.last_mut().unwrap().1 = true;
-                last_is_target = false
-            },
-            Leaf(Op(t, _)) if *t == tier => {
-                pos.push((i - 1, false));
-                last_is_target = true
-            },
-            _ => last_is_target = false
-        }
-    }
-
-    let mut diff = 0;
-    for (mut p, is_neg) in pos {
-        p -= diff;
-
-        let val_1 = expr.remove(p);
-        let op = expr.remove(p).unwrap_leaf();
-        let val_2 = expr.remove(p);
-        let val_2 = if is_neg {
-            diff += 1;
-            ExprTree::make_opr(ZERO, expr.remove(p), SUB)
-        } else { val_2 };
-
-        let operation = ExprTree::make_opr(val_1, val_2, op);
-        diff += 2;
-
-        expr.insert(p, operation);
-    }
+pub fn simplify(tree: ExprTree) -> ExprTreeResult {
+    tree.propagate(ExprTree::clean, |x| Ok(x))?
+        .propagate(apply_simplifications, |x| Ok(x))
 }
 
-fn operate_nums(num1: f64, op: (Tier, bool), num2: f64) -> ExprTree {
-    match op {
-        (Tier1, true) => Leaf(Num(num1 + num2)),
-        (Tier1, false) => Leaf(Num(num1 - num2)),
-        (Tier2, true) => Leaf(Num(num1 * num2)),
-        (Tier2, false) => Leaf(Num(num1 / num2)),
-        (Tier3, true) => Leaf(Num(num1.powf(num2))),
-        (Tier3, false) => Leaf(Num(num1.powf(1.0 / num2))),
-    }
-}
+pub fn operate_nums(num1: f64, op: (Tier, bool), num2: f64) -> ExprTree {
+    let mut result = match op {
+        (Tier1, true) => num1 + num2,
+        (Tier1, false) => num1 - num2,
+        (Tier2, true) => num1 * num2,
+        (Tier2, false) => num1 / num2,
+        (Tier3, true) => num1.powf(num2),
+        (Tier3, false) => num1.powf(1.0 / num2),
+    };
 
-#[derive(Debug, Clone)]
-pub enum ExprTree {
-    Operation(Box<ExprTree>, Box<ExprTree>, ExprUnit),
-    Leaf(ExprUnit),
-}
-
-macro_rules! push_expr_leaf {
-    ($eu: expr, $e:expr, $leaf: expr) => {
-        push_expr_leaf(&mut $eu, &mut $e, Some(Leaf($leaf)))?
-    }
-}
-
-impl ExprTree {
-    pub fn new(expr_str: &str) -> ExprTreeResult {
-        let expr = Self::parse_expr(expr_str)?;
-        Self::build(expr)
-    } 
-
-    fn build(mut expr: Expr) -> ExprTreeResult {
-        let mut pos = vec![];
-        let mut open_brackets = vec![];
-
-        for (i, building_leaf) in expr.iter().enumerate() {
-            match building_leaf {
-                Leaf(OpenBracket) => open_brackets.push(i),
-                Leaf(CloseBracket) => pos.push((open_brackets.pop().ok_or(SyntaxError)?, i)),
-                _ => {}
-            }
-        }
-
-        if !open_brackets.is_empty() {
-            return Err(SyntaxError);
-        }
-
-        let mut pos_clone = pos.clone();
-        for i in 0..pos.len() {
-            let (p1, p2) = pos_clone[i];
-            let mut discount = true;
-            let mut fixed_part = pos.drain((i+1)..pos.len()).into_iter().enumerate().map(
-                |(i2, (mut o, mut c))| {
-                    if discount {
-                        if p1 < o {
-                            o -= p2 - p1;
-                            c -= p2 - p1;
-                            pos_clone[i + 1 + i2] = (o, c);
-                        }
-                        else if p1 > o {
-                            c -= p2 - p1;
-                            discount = false
-                        }
-                    }
-                    (o, c)
-                }
-                ).collect::<Vec<(usize, usize)>>();
-            pos.append(&mut fixed_part);
-        }
-
-        for (o, c) in pos {
-            expr.remove(c);
-            expr.remove(o);
-            let sub_expr: Vec<ExprTree> = expr.drain(o..(c - 1)).collect();
-            expr.insert(o, ExprTree::build(sub_expr)?);
-        }
-
-        condense_op(&mut expr, Tier3);
-        condense_op(&mut expr, Tier2);
-        condense_op(&mut expr, Tier1);
-
-        expr.remove(0).propagate(Self::clean)
-    }
-
-    fn parse_expr(expr_str: &str) -> ExprResult<Expr> {
-        let mut expr = vec![];
-        let mut expr_unit = String::new();
-
-        for ch in expr_str.chars() {
-            match ch {
-                '+' => push_expr_leaf!(expr_unit, expr, ADD),
-                '-' => push_expr_leaf!(expr_unit, expr, SUB),
-                '*' => push_expr_leaf!(expr_unit, expr, MUL),
-                '/' => push_expr_leaf!(expr_unit, expr, DIV),
-                '^' => push_expr_leaf!(expr_unit, expr, POW),
-                '(' => push_expr_leaf!(expr_unit, expr, OpenBracket),
-                ')' => push_expr_leaf!(expr_unit, expr, CloseBracket),
-                _ if ch.is_whitespace() => push_expr_leaf(&mut expr_unit, &mut expr, None)?,
-                _ => expr_unit.push(ch),
-            }
-        }
-        push_expr_leaf(&mut expr_unit, &mut expr, None)?;
-
-        Ok(expr)
-    }
-
-    pub fn make_opr(left: ExprTree, right: ExprTree, op: ExprUnit) -> ExprTree {
-        Operation(Box::new(left), Box::new(right), op)
-    }
-
-    pub fn unwrap_opr(self) -> (ExprTree, ExprTree, ExprUnit) {
-        if let Operation(child1, child2, op) = self {
-            (*child1, *child2, op)
-        } else { panic!("Called ’ExprTree.unwrap_opr’ in a ’ExprTree::Leaf’ value.") }
-    }
-
-    pub fn unwrap_leaf(self) -> ExprUnit {
-        if let Leaf(child) = self {
-            child
-        } else { panic!("Called ’ExprTree.unwrap_leaf’ in a ’ExprTree::Operation’ value.") }
-    }
-
-    pub fn is_num(&self) -> bool {
-        if let Leaf(Num(_)) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get_op(&self) -> Option<ExprUnit> {
-        if let Operation(_, _, op) = self {
-            Some(op.clone())
-        } else {
-            None
-        }
-    }
-
-    pub fn propagate(self, key: fn(ExprTree, ExprTree, ExprUnit) -> ExprTreeResult) -> ExprTreeResult {
-        match self {
-            Operation(child1, child2, op) => {
-                let child1 = child1.propagate(key)?;
-                let child2 = child2.propagate(key)?;
-                key(child1, child2, op)
-            },
-            Leaf(_) => Ok(self)
-        }
-    }
-
-    fn organize(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> ExprTreeResult {
-        let et = match (child1, child2, op) {
-            (c1, Leaf(Num(n)), MUL) => Self::make_opr(Leaf(Num(n)), c1, MUL),
-            (c1, Operation(node1, node2, MUL), MUL) if node1.is_num() => {
-                let multiplier = Operation(node2, Box::new(c1), MUL);
-                Operation(node1, Box::new(multiplier), MUL)
-            }
-            (Operation(node1, node2, op), Leaf(c2), MUL) => {
-                Self::make_opr(Leaf(c2), Operation(node1, node2, op), MUL)
-            }
-            (Operation(node1, node2, POW), c2, POW) => {
-                let pow = Self::make_opr(*node2, c2, MUL);
-                Self::make_opr(*node1, pow, POW)
-            },
-            (c1, Operation(node1, node2, DIV), MUL) => {
-                let factor1 = Self::make_opr(c1, *node1, MUL);
-                Self::make_opr(factor1, *node2, DIV)
-            },
-            (Operation(node1, node2, DIV), c2, MUL) => {
-                let factor1 = Self::make_opr(*node1, c2, MUL);
-                Self::make_opr(factor1, *node2, DIV)
-            }
-            (child1, child2, op) => Self::make_opr(child1, child2, op)
-        };
-
-        Ok(et)
-    }
-
-    fn clean(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> ExprTreeResult {
-        let mut et = Self::organize(child1, child2, op)?;
-
-        et = match et.unwrap_opr() {
-            // Math errors
-            (_, num, DIV) if num == ZERO => Err(MathError)?,
-            (num1, num2, POW) if num1 == ZERO && num2 == ZERO => Err(MathError)?,
-
-            // Two numbers operation
-            (Leaf(Num(x)), Leaf(Num(y)), Op(t, i)) => operate_nums(x, (t, i), y),
-
-            // Operations with zero
-            (node, num, Op(Tier1, _)) if num == ZERO => node,
-            (num, node, ADD) if num == ZERO => node,
-            (num, _, Op(Tier2 | Tier3, _)) if num == ZERO => ZERO,
-            (_, num, Op(Tier3, _)) if num == ZERO => ONE,
-
-            // Operations with one
-            (node, num, Op(Tier2, _)) if num == ONE => node,
-            (num, node, MUL) if num == ONE => node,
-            (node, num, POW) if num == ONE => node,
-            (num, _, POW) if num == ONE => num,
-
-            // Negative
-            (num1, Operation(num2, c2, SUB), SUB) if num1 == ZERO && *num2 == ZERO => *c2,
-            (num1, Operation(c1, c2, MUL), SUB) if num1 == ZERO && c1.is_num() => {
-                if let Leaf(Num(n)) = *c1 {
-                    let c1 = Box::new(Leaf(Num(-n)));
-                    Operation(c1, c2, MUL)
-                } else {
-                    unreachable!()
-                }
-            }
-            (Operation(num1, c1, SUB), Operation(num2, c2, SUB), Op(Tier2, o))
-                if *num1 == ZERO && *num2 == ZERO => Operation(c1, c2, Op(Tier2, o)),
-            (Operation(num1, c1, SUB), node, Op(Tier2, o)) if *num1 == ZERO => {
-                let right = Self::make_opr(*c1, node, Op(Tier2, o));
-                Self::make_opr(ZERO, right, SUB)
-            },
-            (node, Operation(num2, c2, SUB), Op(Tier2, o)) if *num2 == ZERO => {
-                let right = Self::make_opr(node, *c2, Op(Tier2, o));
-                Self::make_opr(ZERO, right, SUB)
-            },
-
-            // Common common
-            (Operation(c11, c12, MUL), Operation(c21, c22, MUL), Op(Tier1, i))
-                if c11 == c21 => {
-                let multiplier = Operation(c12, c22, Op(Tier1, i));
-                Self::make_opr(*c11, multiplier, MUL)
-            },
-            (Operation(c11, c12, Op(Tier2, i2)), Operation(c21, c22, Op(Tier2, i3)), Op(Tier1, i))
-                if c12 == c22 && i2 == i3 => {
-                    let value = Operation(c11, c21, Op(Tier1, i));
-                    Self::make_opr(value, *c12, Op(Tier2, i2))
-            },
-
-            // Any clean possible
-            (child1, child2, op) => Self::make_opr(child1, child2, op)
-        };
-
-        if let Operation(c1, c2, op) = et {
-            Self::organize(*c1, *c2, op)
-        } else {
-            Ok(et)
-        }
-    }
-}
-
-impl Display for ExprTree {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Leaf(x) => write!(f, "{}", x),
-            Operation(x, y, ROOT) => write!(f, "{} 1 {} / ^", x, y),
-            Operation(x, y, z) => write!(f, "{} {} {}", x, y, z)
-        }
-    }
-}
-
-impl Default for ExprTree {
-    fn default() -> Self {
-        Leaf(Num(0.0))
-    }
-}
-
-impl PartialEq for ExprTree {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Leaf(eu1), Leaf(eu2)) if eu1 == eu2 => true,
-            (Operation(ll, lr, ADD), Operation(rl, rr, ADD)) => {
-                (ll == rl && lr == rr) || (ll == rr && lr == rl)
-            },
-            (Operation(ll, lr, MUL), Operation(rl, rr, MUL)) => {
-                (ll == rl && lr == rr) || (ll == rr && lr == rl)
-            },
-            (Operation(ll, lr, op1), Operation(rl, rr, op2)) => {
-                (ll == rl && lr == rr) && op1 == op2
-            },
-            _ => false
-        }
-    }
-    
-    fn ne(&self, other: &Self) -> bool {
-        !(self == other)
-    }
+    result = (result * 10e10).round() / 10e10;
+    Leaf(Num(result))
 }
 
 pub fn apply_simplifications(mut child1: ExprTree, mut child2: ExprTree, mut op: ExprUnit) -> ExprTreeResult {
@@ -477,26 +112,6 @@ pub fn apply_simplifications(mut child1: ExprTree, mut child2: ExprTree, mut op:
     };
 
     Ok(ExprTree::make_opr(child1, child2, op))
-}
-
-#[derive(Clone)]
-struct ExprOper {
-    left: ExprTree,
-    right: ExprTree,
-    op: (Tier, bool),
-    is_default: bool,
-}
-
-impl ExprOper {
-    fn new(left: ExprTree, right: ExprTree, op: (Tier, bool), is_default: bool) -> ExprOper {
-        ExprOper {left, right, op, is_default}
-    }
-
-    fn as_expr_tree(self) -> ExprTree {
-        if self.is_default {
-            self.left
-        } else { Operation(Box::new(self.left), Box::new(self.right), tuple_to_op(self.op)) }
-    }
 }
 
 fn take_or_clone(expr: &mut ExprTree, can_move: bool) -> ExprTree {
@@ -528,12 +143,14 @@ fn distributive(left: &mut ExprOper, right: &mut ExprTree, op: ExprUnit, can_mov
 fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, invert: bool, can_move: bool) -> ExprResult<bool> {
     let (a, mut b) = (&mut left.left, &mut left.right);
     let (mut x, mut y) = (&mut right.left, &mut right.right);
+    let mut is_default1 = false;
 
     let (mut r_left_incr, mut r_right_incr) = (true, right.op.1);
     let mut can_move2 = can_move;
 
     if invert {
         (x, y) = (y, x);
+        is_default1 = right.is_default;
         (r_left_incr, r_right_incr) = (r_right_incr, r_left_incr);
     };
 
@@ -556,8 +173,17 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
         }
     };
 
-    let changed1 = shorten_expr(a, x, op1.clone(), can_move, false)?;
-    let changed2 = shorten_expr(b, y, op2.clone(), can_move2, changed1)?;
+    let (changed1, changed2) = if is_default1 {
+        let changed2 = shorten_expr(b, y, op2, can_move, false)?;
+        shorten_expr(a, x, op1.clone(), can_move2, changed2)?;
+
+        (false, changed2)
+    } else {
+        let changed1 = shorten_expr(a, x, op1.clone(), can_move, false)?;
+        let changed2 = shorten_expr(b, y, op2, can_move2, changed1)?;
+
+        (changed1, changed2)
+    };
     
     if !(changed1 || changed2) {
         return Ok(false);
@@ -743,6 +369,7 @@ fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
             seek_multiplier(c1, target) || seek_multiplier(c2, target)
         },
         Operation(c1, _, POW) => seek_multiplier(c1, target),
+        Leaf(Num(_)) if target.is_num() => true,
         expr if expr == target => true,
         _ => false
     }
@@ -860,7 +487,7 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
         ExprTree::make_opr(left, take_or_clone(orig_right, can_move), op)
     } else {
         left
-    }.propagate(ExprTree::clean)?;
+    }.propagate(ExprTree::clean, |x| Ok(x))?;
 
     Ok(changed)
 }
