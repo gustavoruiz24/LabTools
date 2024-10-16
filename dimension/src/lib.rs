@@ -93,7 +93,7 @@ fn get_unit_based_on_op(op: &ExprUnit, l_unit: ExprTree, r_value: &mut ExprTree,
                     Ok(l_unit)
                 }
                 (Leaf(Unk(x)), r_unit) if x.is_empty() => {
-                    let incr = op.clone().op_as_tuple().1;
+                    let incr = op.clone().unwrap_op().1;
                     let op = Op(Tier::Tier1, incr);
                     let exp = ExprTree::clean(ZERO, ONE, op).parse_err()?;
                     ExprTree::clean(r_unit, exp, POW).parse_err()
@@ -764,7 +764,7 @@ impl CompDimen {
         value = simplify(value).parse_err()?;
         unit = simplify(unit).parse_err()?;
 
-        self.base = ExprOper::new(value, unit, MUL.op_as_tuple(), false);
+        self.base = ExprOper::new(value, unit, MUL.unwrap_op(), false);
         self.update_value().expect("The CompDimen::update_value returned an error in CompDimen::update_base.");
 
         Ok(())
@@ -777,7 +777,7 @@ impl CompDimen {
         value = simplify(value).unwrap();
         unit = simplify(unit).unwrap();
 
-        self.base = ExprOper::new(value, unit, MUL.op_as_tuple(), false);
+        self.base = ExprOper::new(value, unit, MUL.unwrap_op(), false);
         self.update_value().expect("The CompDimen::update_value returned an error in CompDimen::update_base_no_write.");
     }
 
@@ -792,7 +792,7 @@ impl CompDimen {
                 ExprOper::new(
                     take(&mut self.base.right),
                     Leaf(Unk(String::new())),
-                    MUL.op_as_tuple(),
+                    MUL.unwrap_op(),
                     true,
                 )
             } else {

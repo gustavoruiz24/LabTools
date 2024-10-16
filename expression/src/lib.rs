@@ -28,6 +28,7 @@ pub const ROOT: ExprUnit = Op(Tier3, false);
 
 pub const ZERO: ExprTree = Leaf(Num(0.0));
 pub const ONE: ExprTree = Leaf(Num(1.0));
+pub const TEN: ExprTree = Leaf(Num(10.0));
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub enum Tier {
@@ -75,27 +76,76 @@ pub fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
 
 pub fn operate_and_simplify(left: ExprTree, right: ExprTree, op: ExprUnit) -> ExprTreeResult {
     ExprTree::make_opr(left, right, op)
-        .propagate(ExprTree::clean, |x| Ok(x))?
+        .propagate(ExprTree::clean, number_to_sci_notation)?
         .propagate(apply_simplifications, |x| Ok(x))
 }
 
 pub fn simplify(tree: ExprTree) -> ExprTreeResult {
-    tree.propagate(ExprTree::clean, |x| Ok(x))?
+    tree.propagate(ExprTree::clean, number_to_sci_notation)?
         .propagate(apply_simplifications, |x| Ok(x))
 }
 
-pub fn operate_nums(num1: f64, op: (Tier, bool), num2: f64) -> ExprTree {
-    let mut result = match op {
-        (Tier1, true) => num1 + num2,
-        (Tier1, false) => num1 - num2,
-        (Tier2, true) => num1 * num2,
-        (Tier2, false) => num1 / num2,
-        (Tier3, true) => num1.powf(num2),
-        (Tier3, false) => num1.powf(1.0 / num2),
+pub fn number_to_sci_notation(leaf: ExprTree) -> ExprTreeResult {
+    if let Leaf(Num(num)) = leaf {
+        let (man, exp) = take_sci_notation_number(num);
+        Ok(make_sci_notation(man, exp))
+    } else {
+        Ok(leaf)
+    }
+}
+
+pub fn sci_notation_to_number(tree: ExprTree) -> ExprTree {
+    if let Operation(c1, c2, E) = tree {
+        Leaf(Num(c1.unwrap_num() * 10_f64.powf(c2.unwrap_num())))
+    } else { tree }
+}
+
+fn take_sci_notation_number(number: f64) -> (f64, f64) {
+    if number == 0.0 {
+        return (0.0, 0.0)
+    }
+
+    let exponent = number.abs().log10().floor();
+    let mantissa = number / 10_f64.powf(exponent);
+
+    (mantissa, exponent)
+}
+
+fn make_sci_notation(mantissa: f64, exponent: f64) -> ExprTree {
+    if exponent == 0.0 {
+        Leaf(Num(mantissa))
+    } else {
+        ExprTree::make_opr(Leaf(Num(mantissa)), Leaf(Num(exponent)), E)
+    }
+}
+
+pub fn operate_nums(num1: f64, num2: f64, op: (Tier, bool)) -> ExprTree {
+    if op.0 == Tier3 {
+        let result = if op.1 { num1.powf(num2) } else { num1.powf(1.0 / num2) };
+        let (man, pow) = take_sci_notation_number(result);
+        return make_sci_notation(man, pow)
+    }
+
+    let (man1, exp1) = take_sci_notation_number(num1);
+    let (man2, exp2) = take_sci_notation_number(num2);
+
+    operate_sci_notation_nums(man1, exp1, man2, exp2, op)
+}
+
+fn operate_sci_notation_nums(man1: f64, exp1: f64, man2: f64, exp2: f64, op: (Tier, bool)) -> ExprTree {
+    let (man, mut exp) = match op {
+        (Tier1, true) => (man1 * 10_f64.powf(exp1 - exp2) + man2, exp2),
+        (Tier1, false) => (man1 * 10_f64.powf(exp1 - exp2) - man2, exp2),
+        (Tier2, true) => (man1 * man2, exp1 + exp2),
+        (Tier2, false) => (man1 / man2, exp1 - exp2),
+        _ => unreachable!()
     };
 
-    result = (result * 10e10).round() / 10e10;
-    Leaf(Num(result))
+    let (mut man, new_exp) = take_sci_notation_number(man);
+    exp += new_exp;
+
+    man = (man * 10e10).round() / 10e10;
+    make_sci_notation(man, exp)
 }
 
 pub fn apply_simplifications(mut child1: ExprTree, mut child2: ExprTree, mut op: ExprUnit) -> ExprTreeResult {
@@ -154,7 +204,7 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
         (r_left_incr, r_right_incr) = (r_right_incr, r_left_incr);
     };
 
-    let main_op_info = op.clone().op_as_tuple();
+    let main_op_info = op.clone().unwrap_op();
 
     let op1_incr = main_op_info.1 == r_left_incr;
     let op1 = Op(main_op_info.0, op1_incr);
@@ -199,12 +249,12 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
             *left = get_expr_opr_by_op(b, final_op, false);
         } else {
             (left.left, left.right) = (b, a);
-            left.op = final_op.op_as_tuple();
+            left.op = final_op.unwrap_op();
         }
     }
     else {
         (left.left, left.right) = (a, b);
-        left.op = final_op.op_as_tuple();
+        left.op = final_op.unwrap_op();
     }
     Ok(true)
 }
@@ -354,11 +404,11 @@ fn get_next_op(op: ExprUnit, always_true: bool) -> ExprUnit {
 
 fn get_expr_opr_by_op(expr_tree: ExprTree, target_op: ExprUnit, strict: bool) -> ExprOper {
     match expr_tree {
-        Operation(c1, c2, op) if !strict || op == target_op => ExprOper::new(*c1, *c2, op.op_as_tuple(), false),
+        Operation(c1, c2, op) if !strict || op == target_op => ExprOper::new(*c1, *c2, op.unwrap_op(), false),
         _ => {
             if let Op(Tier1, _) = target_op {
-                ExprOper::new(expr_tree, ZERO, target_op.op_as_tuple(), true)
-            } else { ExprOper::new(expr_tree, ONE, target_op.op_as_tuple(), true) }
+                ExprOper::new(expr_tree, ZERO, target_op.unwrap_op(), true)
+            } else { ExprOper::new(expr_tree, ONE, target_op.unwrap_op(), true) }
         }
     }
 }
@@ -385,16 +435,21 @@ fn shorten_expr_early(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit,
                  can_move: bool, ensure_change: bool) -> Option<bool> {
     match (&left, &right) {
         (Leaf(Num(n1)), Leaf(Num(n2))) => {
-            *left = operate_nums(*n1, op.op_as_tuple(), *n2);
-            return Some(true);
+            *left = operate_nums(*n1, *n2, op.unwrap_op());
+            Some(true)
         },
-        (Leaf(Unk(_)), Leaf(Num(_))) | (Leaf(Num(_)), Leaf(Unk(_))) => {
+        (Leaf(Unk(_)), Leaf(Num(_)) | Operation(_, _, E)) |
+        (Leaf(Num(_)) | Operation(_, _, E), Leaf(Unk(_))) => {
             if ensure_change {
                 *left = make_opr_from_ref(left, right, op, can_move);
             }
-            return Some(false);
+            Some(false)
         },
-        (l, r) if l == r && op.op_as_tuple().0 == Tier2 => {
+        (Operation(_, _, E), Leaf(_)) | (Leaf(_), Operation(_, _, E)) => {
+            *left = ExprTree::clean(left.clone(), right.clone(), op).unwrap();
+            Some(true)
+        }
+        (l, r) if l == r && op.unwrap_op().0 == Tier2 => {
             let new_op = POW;
 
             let mut left_opr = get_expr_opr_by_op(take(left), new_op.clone(), true);
@@ -424,7 +479,7 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
         get_expr_opr_by_op(take(orig_left), next_op, false)
     };
 
-    let tuple_op = op.clone().op_as_tuple();
+    let tuple_op = op.clone().unwrap_op();
     let mut right = ExprOper::new(ZERO, ZERO, (Tier1, true), true);
     let mut recover_right = false;
     let can_simp = !left.is_default;
