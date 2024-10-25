@@ -250,7 +250,7 @@ impl ExprTree {
     }
 
     pub fn is_num(&self) -> bool {
-        if let Leaf(Num(_)) = self {
+        if let Leaf(Num(_)) | Operation(_, _, E) = self {
             true
         } else {
             false
@@ -262,6 +262,14 @@ impl ExprTree {
             Some(op.clone())
         } else {
             None
+        }
+    }
+
+    pub fn get_op_info(&self) -> Option<(Tier, bool)> {
+        match self {
+            Operation(_, _, E) => Some((Tier2, true)),
+            Operation(_, _, op) => Some(op.clone().unwrap_op()),
+            _ => None
         }
     }
 

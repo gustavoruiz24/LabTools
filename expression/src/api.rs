@@ -1,7 +1,7 @@
 use super::*;
 
 fn child_to_infix(child: &ExprTree, root_op: (Tier, bool), is_left: bool, sep: &str) -> String {
-    if let Some(Op(tier, i)) = child.get_op() {
+    if let Some((tier, i)) = child.get_op_info() {
         if root_op.0 > tier || ((root_op.0 == tier && (!root_op.1 && i)) && !is_left) {
             return format!("({})", expr_tree_to_infix(child, sep));
         }

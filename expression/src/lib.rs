@@ -7,7 +7,6 @@ pub mod traits;
 use std::mem::take;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, LowerExp, UpperExp};
-
 use expr_structs::*;
 use error::ExprError;
 use self::ExprTree::{Leaf, Operation};
@@ -76,12 +75,12 @@ pub fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
 
 pub fn operate_and_simplify(left: ExprTree, right: ExprTree, op: ExprUnit) -> ExprTreeResult {
     ExprTree::make_opr(left, right, op)
-        .propagate(ExprTree::clean, number_to_sci_notation)?
+        .propagate(ExprTree::clean, |x| Ok(x))?
         .propagate(apply_simplifications, |x| Ok(x))
 }
 
 pub fn simplify(tree: ExprTree) -> ExprTreeResult {
-    tree.propagate(ExprTree::clean, number_to_sci_notation)?
+    tree.propagate(ExprTree::clean, |x| Ok(x))?
         .propagate(apply_simplifications, |x| Ok(x))
 }
 
@@ -106,14 +105,16 @@ fn take_sci_notation_number(number: f64) -> (f64, f64) {
     }
 
     let exponent = number.abs().log10().floor();
-    let mantissa = number / 10_f64.powf(exponent);
+    let mut mantissa = number / 10_f64.powf(exponent);
+
+    mantissa = (mantissa * 10e10).round() / 10e10;
 
     (mantissa, exponent)
 }
 
 fn make_sci_notation(mantissa: f64, exponent: f64) -> ExprTree {
-    if exponent == 0.0 {
-        Leaf(Num(mantissa))
+    if exponent > -2.0 && exponent < 2.0 {
+        Leaf(Num(mantissa * 10_f64.powf(exponent)))
     } else {
         ExprTree::make_opr(Leaf(Num(mantissa)), Leaf(Num(exponent)), E)
     }
@@ -141,10 +142,9 @@ fn operate_sci_notation_nums(man1: f64, exp1: f64, man2: f64, exp2: f64, op: (Ti
         _ => unreachable!()
     };
 
-    let (mut man, new_exp) = take_sci_notation_number(man);
+    let (man, new_exp) = take_sci_notation_number(man);
     exp += new_exp;
 
-    man = (man * 10e10).round() / 10e10;
     make_sci_notation(man, exp)
 }
 
@@ -193,14 +193,12 @@ fn distributive(left: &mut ExprOper, right: &mut ExprTree, op: ExprUnit, can_mov
 fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, invert: bool, can_move: bool) -> ExprResult<bool> {
     let (a, mut b) = (&mut left.left, &mut left.right);
     let (mut x, mut y) = (&mut right.left, &mut right.right);
-    let mut is_default1 = false;
 
     let (mut r_left_incr, mut r_right_incr) = (true, right.op.1);
     let mut can_move2 = can_move;
 
     if invert {
         (x, y) = (y, x);
-        is_default1 = right.is_default;
         (r_left_incr, r_right_incr) = (r_right_incr, r_left_incr);
     };
 
@@ -223,23 +221,26 @@ fn match_equivalent(left: &mut ExprOper, right: &mut ExprOper, op: ExprUnit, inv
         }
     };
 
-    let (changed1, changed2) = if is_default1 {
-        let changed2 = shorten_expr(b, y, op2, can_move, false)?;
-        shorten_expr(a, x, op1.clone(), can_move2, changed2)?;
+    if invert && right.is_default {
+        let changed = shorten_expr(b, y, op2, can_move2, false)?;
+        if !changed { return Ok(false) };
 
-        (false, changed2)
+        shorten_expr(a, x, op1.clone(), can_move, true)?;
+    } else if left.is_default || right.is_default {
+        let changed = shorten_expr(a, x, op1, can_move, false)?;
+        if !changed { return Ok(false) };
+
+        shorten_expr(b, y, op2.clone(), can_move2, true)?;
     } else {
         let changed1 = shorten_expr(a, x, op1.clone(), can_move, false)?;
         let changed2 = shorten_expr(b, y, op2, can_move2, changed1)?;
 
-        (changed1, changed2)
+        if !(changed1 || changed2) {
+            return Ok(false);
+        } else if !changed1 {
+            *a = make_opr_from_ref(a, x, op1, can_move);
+        }
     };
-    
-    if !(changed1 || changed2) {
-        return Ok(false);
-    } else if !changed1 {
-        *a = make_opr_from_ref(a, x, op1, can_move);
-    }
 
     let (mut a, mut b) = (take(a), take(b));
     let final_op = Op(main_op_info.0, final_op_incr);
@@ -404,7 +405,8 @@ fn get_next_op(op: ExprUnit, always_true: bool) -> ExprUnit {
 
 fn get_expr_opr_by_op(expr_tree: ExprTree, target_op: ExprUnit, strict: bool) -> ExprOper {
     match expr_tree {
-        Operation(c1, c2, op) if !strict || op == target_op => ExprOper::new(*c1, *c2, op.unwrap_op(), false),
+        Operation(c1, c2, op)
+        if (!strict || op == target_op) && op != E => ExprOper::new(*c1, *c2, op.unwrap_op(), false),
         _ => {
             if let Op(Tier1, _) = target_op {
                 ExprOper::new(expr_tree, ZERO, target_op.unwrap_op(), true)
@@ -419,6 +421,7 @@ fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
             seek_multiplier(c1, target) || seek_multiplier(c2, target)
         },
         Operation(c1, _, POW) => seek_multiplier(c1, target),
+        Operation(_, _, E) if target.is_num() => true,
         Leaf(Num(_)) if target.is_num() => true,
         expr if expr == target => true,
         _ => false
@@ -482,17 +485,23 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
     let tuple_op = op.clone().unwrap_op();
     let mut right = ExprOper::new(ZERO, ZERO, (Tier1, true), true);
     let mut recover_right = false;
-    let can_simp = !left.is_default;
 
     let changed = match tuple_op.0.get_num() - left.op.0.get_num() {
         1 => {
             let will_remove = if op == DIV {
                 seek_multiplier(&left.left, orig_right) || seek_multiplier(&left.right, orig_right)
             } else if op == MUL {
-                seek_divisor(&left.left, orig_right) || seek_divisor(&left.right, orig_right)
+                if left.is_default {
+                    *orig_left = take_or_clone(orig_right, can_move);
+                    *orig_right = left.as_expr_tree();
+
+                    return shorten_expr(orig_left, orig_right, op, true, ensure_change);
+                } else {
+                    seek_divisor(&left.left, orig_right) || seek_divisor(&left.right, orig_right)
+                }
             } else { true };
 
-            if will_remove && can_simp {
+            if will_remove && !left.is_default {
                 distributive(&mut left, orig_right, op.clone(), can_move)?
             } else { false }
         }
@@ -513,10 +522,13 @@ pub fn shorten_expr(orig_left: &mut ExprTree, orig_right: &mut ExprTree,
             }
         }
         _ => {
-            let mut right_copy = take_or_clone(orig_right, can_move);
             let mut left_copy = left.as_expr_tree();
+            let mut right_copy = take_or_clone(orig_right, can_move);
 
             let changed = if let Some(cf) = common_factor(&mut left_copy, &mut right_copy, tuple_op)? {
+                left_copy = left_copy.propagate(ExprTree::clean, |x| Ok(x))?;
+                right_copy = right_copy.propagate(ExprTree::clean, |x| Ok(x))?;
+
                 shorten_expr(&mut left_copy, &mut right_copy, op.clone(), true, true)?;
                 left_copy = ExprTree::make_opr(left_copy, cf.0, cf.1);
 
