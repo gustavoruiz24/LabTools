@@ -14,9 +14,9 @@ use self::ExprUnit::*;
 use self::Tier::*;
 
 type Expr = Vec<ExprTree>;
-type ExprResult<T> = Result<T, ExprError>;
+pub type ExprResult<T> = Result<T, ExprError>;
 type ExprTreeResult = ExprResult<ExprTree>;
-type CommonFactor = Option<(ExprTree, ExprUnit)>;
+pub type CommonFactor = Option<(ExprTree, ExprUnit)>;
 
 pub const ADD: ExprUnit = Op(Tier1, true);
 pub const SUB: ExprUnit = Op(Tier1, false);
@@ -289,7 +289,7 @@ fn common_operation(a: &mut ExprTree, b: &mut ExprTree, op: ExprUnit,
       )
 }
 
-fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier, bool)) -> ExprResult<CommonFactor> {
+pub fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier, bool)) -> ExprResult<CommonFactor> {
     let mut left = get_expr_opr_by_op(take(orig_left), POW, true);
     let mut right = get_expr_opr_by_op(take(orig_right), POW, true);
     let both_are_default = left.is_default && right.is_default;
@@ -333,6 +333,11 @@ fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (Tier,
                     }
 
                     result = Some(cf);
+                } else if op.0 == Tier2 {
+                    if let Some(mut cf) = common_factor(&mut left.right, &mut right.right, (Tier1, true))? {
+                        cf.1 = POW;
+                        result = Some(cf);
+                    }   
                 }
             } else if op.0 == Tier2 {
                 if let Some(mut cf) = common_factor(&mut left.right, &mut right.right, (Tier1, true))? {
