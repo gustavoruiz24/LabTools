@@ -9,15 +9,11 @@ pub trait ParseErr<T> {
 }
 
 pub trait Pow<Rhs = Self> {
-    type Output;
-
-    fn pow(self, other: Rhs) -> Self::Output;
+    fn pow(self, other: Rhs) -> GeneDimen;
 }
 
 pub trait PowD<Rhs = Self> {
-    type Output;
-
-    fn powd(self, other: Rhs) -> Self::Output;
+    fn powd(self, other: Rhs) -> GeneDimen;
 }
 
 pub trait DimenBasics {
@@ -78,6 +74,10 @@ pub trait DimenSetAndGet {
     fn get_unit(&self) -> ExprTree;
 
     fn get_move_unit(&mut self) -> ExprTree;
+
+    fn get_num_or_unit(&self) -> ExprTree;
+
+    fn get_move_num_or_unit(&mut self) -> ExprTree;
 
     fn get_custom_units(&self) -> CustomUnits;
 

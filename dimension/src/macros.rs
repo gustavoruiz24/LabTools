@@ -132,10 +132,15 @@ macro_rules! apply_verified_ops {
     ($($s: expr, $o: expr, $op:expr)?) => {
         $(
             {
-                let tree = apply_simplifications($s.get_move_value(), $o.get_move_value(), $op);
+                let tree = apply_simplifications($s.get_move_value(), $o.get_value(), $op);
                 let value = tree.parse_err()?;
-                let unit = ExprTree::make_opr($s.get_move_unit(), $o.get_move_unit(), $op);
-
+                let unit = get_unit_based_on_op(
+                    &$op,
+                    $s.get_move_unit(),
+                    &mut ZERO,
+                    $o.get_move_num_or_unit()
+                )?;
+                
                 let mut custom_units = $s.get_move_custom_units();
                 custom_units.append(&mut $o.get_move_custom_units());
 

@@ -11,7 +11,6 @@ use expression::error::ExprError;
 use expression::expr_structs::*;
 use expression::expr_structs::ExprTree::{Leaf, Operation};
 use expression::expr_structs::ExprUnit::{Num, Op, Unk};
-use expression::traits::Pow;
 use macros::*;
 use traits::*;
 
@@ -669,6 +668,22 @@ impl DimenSetAndGet for SimpDimen {
     fn get_move_unit(&mut self) -> ExprTree {
         self.get_unit()
     }
+    
+    fn get_num_or_unit(&self) -> ExprTree {
+       let unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+
+        if &unit == "" {
+            self.value.clone()
+        } else { Leaf(Unk(unit)) }
+    }
+
+    fn get_move_num_or_unit(&mut self) -> ExprTree {
+        let unit = self.prefixes[self.prefix].0.to_string() + self.units[self.unit];
+
+        if &unit == "" {
+            take(&mut self.value)
+        } else { Leaf(Unk(unit)) }
+    }
 
     fn get_custom_units(&self) -> CustomUnits {
         if let Custom(_) = self.base {
@@ -737,7 +752,11 @@ impl CompDimen {
         separate_value_unit(
             tree, dict,
             &|unk| {
-                ("1", unk)
+                if let Ok(_) = unk.parse::<f64>() {
+                    (unk, "")
+                } else {
+                    ("1", unk)
+                }
             },
             &|dict, value, unit| {
                 dict.take_unit_with_custom(value, unit, custom_units)
@@ -899,6 +918,14 @@ impl DimenSetAndGet for CompDimen {
 
     fn get_move_unit(&mut self) -> ExprTree {
         take(&mut self.base).as_expr_tree()
+    }
+
+    fn get_num_or_unit(&self) -> ExprTree {
+        self.get_unit()
+    }
+
+    fn get_move_num_or_unit(&mut self) -> ExprTree {
+        self.get_move_unit()
     }
 
     fn get_custom_units(&self) -> CustomUnits {
@@ -1081,6 +1108,20 @@ impl DimenSetAndGet for GeneDimen {
         }
     }
 
+    fn get_num_or_unit(&self) -> ExprTree {
+        match self {
+            GenSimpDimen(ref sd) => sd.get_num_or_unit(),
+            GenCompDimen(ref cd) => cd.get_num_or_unit(),
+        }
+    }
+
+    fn get_move_num_or_unit(&mut self) -> ExprTree {
+        match self {
+            GenSimpDimen(sd) => sd.get_move_num_or_unit(),
+            GenCompDimen(cd) => cd.get_move_num_or_unit(),
+        }
+    }
+
     fn get_move_unit(&mut self) -> ExprTree {
         match self {
             GenSimpDimen(sd) => sd.get_move_unit(),
@@ -1150,9 +1191,7 @@ where
     Dimen1: DimenBasics + DimenSetAndGet,
     Dimen2: DimenBasics + DimenSetAndGet,
 {
-    type Output = GeneDimen;
-
-    fn powd(mut self, other: Dimen2) -> Self::Output {
+        fn powd(mut self, other: Dimen2) -> GeneDimen {
         self.verified_pow(other.to_generic()).map_err(|err| panic!("{}", err)).unwrap()
     }
 }
@@ -1160,14 +1199,10 @@ where
 impl<T, Dimen> traits::Pow<T> for Dimen
 where
     T: Into<f64>,
-    Dimen: DimenBasics + DimenSetAndGet,
+    Dimen: DimenBasics + DimenSetAndGet + PowD<SimpDimen>,
 {
-    type Output = GeneDimen;
-
-    fn pow(mut self, other: T) -> Self::Output {
-        let value = self.get_move_value();
-        self.set_value(value.pow(other.into()));
-        self.to_generic()
+    fn pow(self, other: T) -> GeneDimen {
+        self.powd(SimpDimen::init_nd(Leaf(Num(other.into()))))
     }
 }
 
