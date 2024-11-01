@@ -304,6 +304,13 @@ impl ExprTree {
 
     pub fn organize(child1: ExprTree, child2: ExprTree, op: ExprUnit) -> ExprTreeResult {
         let et = match (child1, child2, op) {
+            // Organize negative exponent
+            (Operation(node1, node2, DIV), Leaf(Num(num)), Op(Tier3, i)) if num < 0.0 => {
+                let base = Operation(node2, node1, DIV);
+                ExprTree::make_opr(base, Leaf(Num(-num)), Op(Tier3, i))
+            }
+
+            // Apply reading priority
             (c1, Leaf(Num(n)), MUL) => Self::make_opr(Leaf(Num(n)), c1, MUL),
             (c1, Operation(node1, node2, MUL), MUL) if node1.is_num() => {
                 let multiplier = Self::clean(*node2, c1, MUL)?;
@@ -312,10 +319,18 @@ impl ExprTree {
             (Operation(node1, node2, op), Leaf(c2), MUL) => {
                 Self::make_opr(Leaf(c2), Operation(node1, node2, op), MUL)
             }
+
+            // Agglutinate values with the same operation
             (Operation(node1, node2, POW), c2, POW) => {
                 let pow = Self::clean(*node2, c2, MUL)?;
                 Self::make_opr(*node1, pow, POW)
             }
+            (Operation(node1, node2, DIV), c2, DIV) => {
+                let factor = Self::clean(*node2, c2, MUL)?;
+                Self::make_opr(*node1, factor, DIV)
+            }
+
+            // Apply same tier priority
             (c1, Operation(node1, node2, DIV), MUL) => {
                 let factor = Self::clean(c1, *node1, MUL)?;
                 Self::make_opr(factor, *node2, DIV)
@@ -324,13 +339,34 @@ impl ExprTree {
                 let factor = Self::clean(*node1, c2, MUL)?;
                 Self::make_opr(factor, *node2, DIV)
             }
-            (Operation(node1, node2, DIV), c2, DIV) => {
-                let factor = Self::clean(*node2, c2, MUL)?;
-                Self::make_opr(*node1, factor, DIV)
-            }
+            
+            // Operate scientific numbers
             (c1, c2, Op(Tier3, i)) => {
                 Self::make_opr(sci_notation_to_number(c1), sci_notation_to_number(c2), Op(Tier3, i))
             }
+
+            // Organize negative sign
+            (num1, Operation(num2, c2, SUB), SUB) if num1 == ZERO && *num2 == ZERO => *c2,
+            (num1, Operation(c1, c2, MUL), SUB) if num1 == ZERO && c1.is_num() => {
+                if let Leaf(Num(n)) = *c1 {
+                    let c1 = Box::new(Leaf(Num(-n)));
+                    Operation(c1, c2, MUL)
+                } else {
+                    unreachable!()
+                }
+            }
+            (Operation(num1, c1, SUB), Operation(num2, c2, SUB), Op(Tier2, o))
+            if *num1 == ZERO && *num2 == ZERO => Operation(c1, c2, Op(Tier2, o)),
+            (Operation(num1, c1, SUB), node, Op(Tier2, o)) if *num1 == ZERO => {
+                let right = Self::make_opr(*c1, node, Op(Tier2, o));
+                Self::make_opr(ZERO, right, SUB)
+            }
+            (node, Operation(num2, c2, SUB), Op(Tier2, o)) if *num2 == ZERO => {
+                let right = Self::make_opr(node, *c2, Op(Tier2, o));
+                Self::make_opr(ZERO, right, SUB)
+            }
+            
+            // Any organization possible
             (child1, child2, op) => Self::make_opr(child1, child2, op)
         };
 
@@ -365,27 +401,7 @@ impl ExprTree {
             (node, num, POW) if num == ONE => node,
             (num, _, POW) if num == ONE => num,
 
-            // Negative
-            (num1, Operation(num2, c2, SUB), SUB) if num1 == ZERO && *num2 == ZERO => *c2,
-            (num1, Operation(c1, c2, MUL), SUB) if num1 == ZERO && c1.is_num() => {
-                if let Leaf(Num(n)) = *c1 {
-                    let c1 = Box::new(Leaf(Num(-n)));
-                    Operation(c1, c2, MUL)
-                } else {
-                    unreachable!()
-                }
-            }
-            (Operation(num1, c1, SUB), Operation(num2, c2, SUB), Op(Tier2, o))
-            if *num1 == ZERO && *num2 == ZERO => Operation(c1, c2, Op(Tier2, o)),
-            (Operation(num1, c1, SUB), node, Op(Tier2, o)) if *num1 == ZERO => {
-                let right = Self::make_opr(*c1, node, Op(Tier2, o));
-                Self::make_opr(ZERO, right, SUB)
-            }
-            (node, Operation(num2, c2, SUB), Op(Tier2, o)) if *num2 == ZERO => {
-                let right = Self::make_opr(node, *c2, Op(Tier2, o));
-                Self::make_opr(ZERO, right, SUB)
-            }
-
+           
             // Common factor
             (Operation(c11, c12, MUL), Operation(c21, c22, MUL), Op(Tier1, i))
             if c11 == c21 => {
