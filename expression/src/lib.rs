@@ -107,14 +107,16 @@ fn take_sci_notation_number(number: f64) -> (f64, f64) {
     let exponent = number.abs().log10().floor();
     let mut mantissa = number / 10_f64.powf(exponent);
 
-    mantissa = (mantissa * 10e10).round() / 10e10;
+    mantissa = (mantissa * 1e10).round() / 1e10;
 
     (mantissa, exponent)
 }
 
 fn make_sci_notation(mantissa: f64, exponent: f64) -> ExprTree {
     if exponent > -2.0 && exponent < 2.0 {
-        Leaf(Num(mantissa * 10_f64.powf(exponent)))
+        let mut number = mantissa * 10_f64.powf(exponent);
+        number = (number * 1e10).round() / 1e10;
+        Leaf(Num(number))
     } else {
         ExprTree::make_opr(Leaf(Num(mantissa)), Leaf(Num(exponent)), E)
     }
@@ -420,7 +422,7 @@ fn get_expr_opr_by_op(expr_tree: ExprTree, target_op: ExprUnit, strict: bool) ->
     }
 }
 
-fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
+pub fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
     match expr {
         Operation(c1, c2, MUL) => {
             seek_multiplier(c1, target) || seek_multiplier(c2, target)
@@ -433,7 +435,7 @@ fn seek_multiplier(expr: &ExprTree, target: &ExprTree) -> bool {
     }
 }
 
-fn seek_divisor(expr: &ExprTree, target: &ExprTree) -> bool {
+pub fn seek_divisor(expr: &ExprTree, target: &ExprTree) -> bool {
     if let Operation(_, c2, DIV) = expr {
         seek_multiplier(c2, target)
     } else { false }
