@@ -10,8 +10,8 @@ pub enum ExprError {
 impl Display for ExprError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SyntaxError(expr) => write!(f, "SyntaxError: The {} expression contains a syntax error.", expr),
-            MathError(expr) => write!(f, "MathError: The {} expression contains a math error.", expr)
+            SyntaxError(expr) => write!(f, "SyntaxError: The `{}` expression contains a syntax error.", expr),
+            MathError(expr) => write!(f, "MathError: The `{}` expression contains a math error.", expr)
         }
     }
 }
