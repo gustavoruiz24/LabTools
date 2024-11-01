@@ -34,8 +34,8 @@ fn create_simp_dimen(value: ExprTree, unit: String, custom_units: &CustomUnits) 
     SimpDimen::init(value, &unit, base)
 }
 
-fn split_value_unit(text: &str) -> (&str, &str) {
-    if let Some((v, u)) = text.split_once("_u_") {
+pub fn split_value_unit(text: &str) -> (&str, String) {
+    let (v, u) = if let Some((v, u)) = text.split_once("_u_") {
         (v, u)
     } else if let Some(pos) = text.rfind(|x: char| x.is_numeric()) {
         text.split_at(pos + 1)
@@ -45,7 +45,9 @@ fn split_value_unit(text: &str) -> (&str, &str) {
         } else {
             (text, "")
         }
-    }
+    };
+
+    (v, u.to_string())
 }
 
 fn get_unit_based_on_op(op: &ExprUnit, l_unit: ExprTree, r_value: &mut ExprTree,
@@ -103,15 +105,15 @@ fn get_unit_based_on_op(op: &ExprUnit, l_unit: ExprTree, r_value: &mut ExprTree,
     }
 }
 
-type CustomUnits = Vec<SimpDimen>;
+pub type CustomUnits = Vec<SimpDimen>;
 
-fn separate_value_unit<F1, F2>(
+pub fn separate_value_unit<F1, F2>(
     tree: ExprTree,
     dict: &mut UnitsDict,
     split_value_unit: &F1,
     get_unit: &F2) -> Result<(ExprTree, ExprTree), DimenError>
 where
-    F1: Fn(&str) -> (&str, &str),
+    F1: Fn(&str) -> (&str, String),
     F2: Fn(&mut UnitsDict, &mut ExprTree, &mut String) -> Result<(), DimenError>,
 {
     match tree {
@@ -126,15 +128,13 @@ where
         }
         Leaf(Num(value)) => Ok((Leaf(Num(value)), Leaf(Unk(String::new())))),
         Leaf(Unk(unk)) => {
-            let (value, unit) = split_value_unit(&unk);
+            let (value, mut unit) = split_value_unit(&unk);
 
             let mut value = if let Ok(num) = value.parse::<f64>() {
                 Leaf(Num(num))
             } else {
                 Leaf(Unk(value.to_string()))
             };
-
-            let mut unit = unit.to_string();
 
             get_unit(dict, &mut value, &mut unit)?;
 
@@ -170,7 +170,7 @@ fn take_custom_dimen_name(dimen: &SimpDimen) -> &'static str {
 }
 
 #[derive(Clone, Default, PartialEq)]
-struct UnitsDict {
+pub struct UnitsDict {
     length: Option<String>,
     time: Option<String>,
     mass: Option<String>,
@@ -183,7 +183,7 @@ struct UnitsDict {
 }
 
 impl UnitsDict {
-    fn new() -> UnitsDict {
+    pub fn new() -> UnitsDict {
         UnitsDict::default()
     }
 
@@ -286,7 +286,7 @@ impl UnitsDict {
         }
     }
 
-    fn take_unit_with_custom(&mut self, current_value: &mut ExprTree, current_unit: &mut String, custom_units: &CustomUnits) -> Result<(), DimenError> {
+    pub fn take_unit_with_custom(&mut self, current_value: &mut ExprTree, current_unit: &mut String, custom_units: &CustomUnits) -> Result<(), DimenError> {
         if let Some(()) = self.take_custom_unit(current_value, current_unit, custom_units) {
             Ok(())
         } else {
@@ -753,9 +753,9 @@ impl CompDimen {
             tree, dict,
             &|unk| {
                 if let Ok(_) = unk.parse::<f64>() {
-                    (unk, "")
+                    (unk, String::new())
                 } else {
-                    ("1", unk)
+                    ("1", unk.to_string())
                 }
             },
             &|dict, value, unit| {
@@ -768,7 +768,7 @@ impl CompDimen {
         separate_value_unit(
             tree, dict,
             &|unk| {
-                ("1", unk)
+                ("1", unk.to_string())
             },
             &|dict, value, unit| {
                 dict.take_unit_with_custom_no_write(value, unit)
