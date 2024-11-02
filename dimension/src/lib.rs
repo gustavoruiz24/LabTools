@@ -1,3 +1,5 @@
+#![allow(const_item_mutation)]
+
 use std::fmt::{self, Debug, Display, Formatter, LowerExp, UpperExp};
 use std::mem::take;
 use std::ops::*;
@@ -23,6 +25,19 @@ pub mod utils;
 pub mod macros;
 pub mod traits;
 
+fn unit_exist(unit: &str, custom_units: &CustomUnits) -> bool {
+    let mut exist = SimpDimen::get_unit_base(unit).is_ok();
+    let custom_len = custom_units.len();
+    let mut counter = 0;
+
+    while !exist && counter < custom_len {
+        exist = exist || custom_units[counter].verify_unit(unit).is_ok();
+        counter += 1;
+    }
+
+    exist
+}
+
 fn create_simp_dimen(value: ExprTree, unit: String, custom_units: &CustomUnits) -> NewDimenRes<SimpDimen> {
     for custom_unit in custom_units {
         if custom_unit.verify_unit(&unit).is_ok() {
@@ -34,13 +49,13 @@ fn create_simp_dimen(value: ExprTree, unit: String, custom_units: &CustomUnits) 
     SimpDimen::init(value, &unit, base)
 }
 
-pub fn split_value_unit(text: &str) -> (&str, String) {
+pub fn split_value_unit<'a>(text: &'a str, custom_units: &CustomUnits) -> (&'a str, String) {
     let (v, u) = if let Some((v, u)) = text.split_once("_u_") {
         (v, u)
     } else if let Some(pos) = text.rfind(|x: char| x.is_numeric()) {
         text.split_at(pos + 1)
     } else {
-        if let Ok(_) = SimpDimen::get_unit_base(text) {
+        if unit_exist(text, custom_units) {
             ("1", text)
         } else {
             (text, "")
@@ -50,10 +65,13 @@ pub fn split_value_unit(text: &str) -> (&str, String) {
     (v, u.to_string())
 }
 
-fn get_unit_based_on_op(op: &ExprUnit, l_unit: ExprTree, r_value: &mut ExprTree,
-                        r_unit: ExprTree) -> Result<ExprTree, DimenError> {
+fn get_unit_based_on_op(op: &ExprUnit, mut l_unit: ExprTree, r_value: &mut ExprTree,
+                        mut r_unit: ExprTree) -> Result<ExprTree, DimenError> {
     match op {
         Op(Tier::Tier1, i) => {
+            l_unit = simplify(l_unit)?;
+            r_unit = simplify(r_unit)?;
+
             if l_unit == r_unit {
                 Ok(l_unit)
             } else {
@@ -96,7 +114,7 @@ fn get_unit_based_on_op(op: &ExprUnit, l_unit: ExprTree, r_value: &mut ExprTree,
                 (Leaf(Unk(x)), r_unit) if x.is_empty() => {
                     let incr = op.clone().unwrap_op().1;
                     let op = Op(Tier::Tier1, incr);
-                    let exp = ExprTree::clean(ZERO, ONE, op).parse_err()?;
+                    let exp = ExprTree::clean(ZERO, ONE, op)?;
                     ExprTree::clean(r_unit, exp, POW).parse_err()
                 }
                 (l_unit, r_unit) => Ok(ExprTree::make_opr(l_unit, r_unit, op.clone()))
@@ -118,8 +136,11 @@ where
 {
     match tree {
         Operation(left, right, op) => {
-            let (l_value, l_unit) = separate_value_unit(*left, dict, split_value_unit, get_unit)?;
-            let (mut r_value, r_unit) = separate_value_unit(*right, dict, split_value_unit, get_unit)?;
+            let separated_left = separate_value_unit(*left, dict, split_value_unit, get_unit)?;
+            let (l_value, l_unit) = separated_left;
+
+            let separated_right = separate_value_unit(*right, dict, split_value_unit, get_unit)?;
+            let (mut r_value, r_unit) = separated_right;
 
             let unit = get_unit_based_on_op(&op, l_unit, &mut r_value, r_unit)?;
             let value = ExprTree::make_opr(l_value, r_value, op);
@@ -147,16 +168,16 @@ where
 fn take_value_unit<T: AsRef<str>>(expr: T, custom_units: &CustomUnits) -> Result<(ExprTree, ExprTree, UnitsDict), DimenError> {
     let expr = expr.as_ref();
     let mut dict = UnitsDict::new();
-    let tree = ExprTree::raw_new(expr).parse_err()?;
+    let tree = ExprTree::raw_new(expr)?;
 
     let (mut value, mut unit) = separate_value_unit(
-        tree, &mut dict, &split_value_unit, &|dict, value, unit| {
+        tree, &mut dict, &|text| split_value_unit(text, custom_units), &|dict, value, unit| {
             dict.take_unit_with_custom(value, unit, custom_units)
         },
     )?;
 
-    value = simplify(value).parse_err()?;
-    unit = simplify(unit).parse_err()?;
+    value = simplify(value)?;
+    unit = simplify(unit)?;
 
     Ok((value, unit, dict))
 }
@@ -200,7 +221,7 @@ impl UnitsDict {
     }
 
     fn take_custom_unit_no_write(&mut self, current_value: &mut ExprTree, current_unit: &mut String) -> Option<()> {
-        let mut final_unit = None;
+        let mut result = None;
 
         for unit in &self.custom {
             if unit.verify_unit(current_unit).is_ok() {
@@ -213,16 +234,16 @@ impl UnitsDict {
                     new_custom.bcm_unit_proportion(current_unit).unwrap();
                     *current_value = new_custom.value;
 
-                    final_unit = Some(());
+                    result = Some(());
                 }
             }
         }
 
-        final_unit
+        result
     }
 
     fn take_custom_unit(&mut self, current_value: &mut ExprTree, current_unit: &mut String, custom_units: &CustomUnits) -> Option<()> {
-        let mut final_unit = None;
+        let mut result = None;
 
         for unit in custom_units {
             if unit.verify_unit(current_unit).is_ok() {
@@ -236,18 +257,18 @@ impl UnitsDict {
                     new_custom.bcm_unit_proportion(current_unit).unwrap();
                     *current_value = new_custom.value;
 
-                    final_unit = Some(());
+                    result = Some(());
                 } else {
                     let mut custom = unit.clone();
                     custom.bcm_unit_proportion(current_unit).unwrap();
 
                     self.custom.push(custom);
-                    final_unit = Some(());
+                    result = Some(());
                 }
             }
         }
 
-        final_unit
+        result
     }
 
     fn take_field(&mut self, unit_base: SimpDimenBase) -> Option<&mut Option<String>> {
@@ -301,7 +322,6 @@ impl UnitsDict {
             self.take_unit(current_value, current_unit)
         }
     }
-
 
     fn new_si() -> Self {
         UnitsDict {
@@ -780,8 +800,8 @@ impl CompDimen {
         let tree = take(&mut self.base).as_expr_tree();
         let (mut value, mut unit) = Self::propagate_dict(tree, &mut self.dict, custom_units)?;
 
-        value = simplify(value).parse_err()?;
-        unit = simplify(unit).parse_err()?;
+        value = simplify(value)?;
+        unit = simplify(unit)?;
 
         self.base = ExprOper::new(value, unit, MUL.unwrap_op(), false);
         self.update_value().expect("The CompDimen::update_value returned an error in CompDimen::update_base.");
@@ -805,7 +825,7 @@ impl CompDimen {
             let multiplier = simplify(take(&mut self.base.left))?;
             let old_value = take(&mut self.value);
 
-            self.value = apply_simplifications(old_value, multiplier, MUL).parse_err()?;
+            self.value = apply_simplifications(old_value, multiplier, MUL)?;
 
             self.base = if let Leaf(Unk(_)) = &self.base.right {
                 ExprOper::new(
@@ -846,7 +866,7 @@ impl CompDimen {
     }
 
     pub fn base_by_unit(unit: &str) -> Result<CompDimenBase, DimenError> {
-        let mut base = ExprTree::new(unit).parse_err()?;
+        let mut base = ExprTree::new(unit)?;
         base = base.propagate(
             |c1, c2, op| {
                 get_unit_based_on_op(&op, c1, &mut ONE, c2)
