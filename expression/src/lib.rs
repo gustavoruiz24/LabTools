@@ -455,8 +455,9 @@ fn shorten_expr_early(left: &mut ExprTree, right: &mut ExprTree, op: ExprUnit,
             }
             Some(false)
         },
-        (Operation(_, _, E), Leaf(_)) | (Leaf(_), Operation(_, _, E)) => {
-            *left = ExprTree::clean(left.clone(), right.clone(), op).unwrap();
+        (Operation(_, _, E), Leaf(_) | Operation(_, _, E)) |
+        (Leaf(_), Operation(_, _, E)) => {
+            *left = ExprTree::clean(take(left), take(right), op).unwrap();
             Some(true)
         }
         (l, r) if l == r && op.unwrap_op().0 == Tier2 => {
