@@ -1,7 +1,7 @@
 mod error;
 
 use error::EquationError::{self, *};
-use error::{parse_dimen_err, parse_expr_err};
+use error::{EquaResult, ParseErr};
 
 use dimension::{separate_value_unit, split_value_unit, CustomUnits, UnitsDict};
 use expression::api::expr_tree_to_infix;
@@ -129,83 +129,97 @@ pub fn simplify_equation_tree(mut left: ExprTree, mut right: ExprTree, target: E
     }
 }
 
-fn basic_simplify(equation: &str, target: &str, sep: &str, marker: &str) -> Result<String, EquationError> {
+fn take_infix(left: ExprTree, right: ExprTree, sep: &str) -> (String, String) {
+    (expr_tree_to_infix(&left, sep), expr_tree_to_infix(&right, sep))
+}
+
+fn basic_simplify(equation: &str, target: &str, sep: &str, marker: &str) -> EquaResult<String> {
     let (left, right) = equation.split_once(marker).ok_or(SyntaxError(equation.to_string()))?;
 
-    let left = ExprTree::new(left).map_err(|err| parse_expr_err(equation, err))?;
-    let right = ExprTree::new(right).map_err(|err| parse_expr_err(equation, err))?;
-    let target = ExprTree::new(target).map_err(|err| parse_expr_err(equation, err))?;
+    let left = ExprTree::new(left).parse_err(equation)?;
+    let right = ExprTree::new(right).parse_err(equation)?;
+    let target = ExprTree::new(target).parse_err(equation)?;
 
     let simplified = simplify_equation_tree(left, right, target);
-    let (left, right) = simplified.map_err(|err| parse_expr_err(equation, err))?;
+    let (left, right) = simplified.parse_err(equation)?;
 
-    let result = vec![expr_tree_to_infix(&left, sep), marker.to_string(),
-                      expr_tree_to_infix(&right, sep)];
+    let (left, right) = take_infix(left, right, sep);
+
+    let result = [left, marker.to_string(), right];
 
     Ok(result.join(sep))
 }
 
-pub fn simplify_differentiation(differentiation: &str, target: &str, sep: &str) -> Result<String, EquationError> {
+pub fn simplify_differentiation(differentiation: &str, target: &str, sep: &str) -> EquaResult<String> {
     basic_simplify(differentiation, target, sep, "!=")
 }
 
-pub fn simplify_equation(equation: &str, target: &str, sep: &str) -> Result<String, EquationError> {
+pub fn simplify_equation(equation: &str, target: &str, sep: &str) -> EquaResult<String> {
     basic_simplify(equation, target, sep, "=")
 }
 
-pub fn basic_simplify_dimen(equation: &str, target: &str, sep: &str,
-                            marker: &str, custom_units: &CustomUnits) -> Result<String, EquationError> {
+pub fn basic_simplify_dimen(
+    equation: &str,
+    target: &str,
+    sep: &str,
+    marker: &str,
+    custom_units: &CustomUnits) -> EquaResult<String> {
     let (left, right) = equation.split_once(marker).ok_or(SyntaxError(equation.to_string()))?;
 
-    let left = ExprTree::raw_new(left).map_err(|err| parse_expr_err(equation, err))?;
-    let right = ExprTree::raw_new(right).map_err(|err| parse_expr_err(equation, err))?;
+    let left = ExprTree::raw_new(left).parse_err(equation)?;
+    let right = ExprTree::raw_new(right).parse_err(equation)?;
 
     let mut dict = UnitsDict::new();
     let mut separate = |tree| {
         separate_value_unit(
-            tree, &mut dict, &split_value_unit, &|dict, value, unit| {
+            tree, &mut dict, &|text| split_value_unit(text, custom_units), &|dict, value, unit| {
                 dict.take_unit_with_custom(value, unit, custom_units)?;
-                if !unit.is_empty() { *unit = "_u_".to_string() + &unit };
+                *unit = "_u_".to_string() + &unit;
                 Ok(())
             },
         )
     };
 
-    let (left_value, left_unit) = separate(left).map_err(|err| parse_dimen_err(equation, err))?;
-    let (right_value, right_unit) = separate(right).map_err(|err| parse_dimen_err(equation, err))?;
+    let (left_value, left_unit) = separate(left).parse_err(equation)?;
+    let (right_value, right_unit) = separate(right).parse_err(equation)?;
 
     let mut left = ExprTree::make_opr(left_value, left_unit, MUL);
     let mut right = ExprTree::make_opr(right_value, right_unit, MUL);
-    let target = ExprTree::new(target).map_err(|err| parse_expr_err(equation, err))?;
+    let target = ExprTree::new(target).parse_err(equation)?;
 
     let simplified = simplify_equation_tree(left, right, target);
-    (left, right) = simplified.map_err(|err| parse_expr_err(equation, err))?;
+    (left, right) = simplified.parse_err(equation)?;
 
     let (mut right, unit) = separate_value_unit(
         right, &mut dict, &|unit: &str| {
             let new_unit = unit.trim_start_matches("_u_");
-            if unit != new_unit || new_unit.is_empty() {
-                ("1", new_unit.to_string())
-            } else {
-                (unit, String::new())
-            }
+            if unit != new_unit { ("1", new_unit.to_string()) } else { (unit, String::new()) }
         },
         &|_, _, _| { Ok(()) },
-    ).map_err(|err| parse_dimen_err(equation, err))?;
+    ).parse_err(equation)?;
 
-    right = right.propagate(ExprTree::clean, |x| Ok(x))
-        .map_err(|err| parse_expr_err(equation, err))?;
+    right = right.propagate(ExprTree::clean, |x| Ok(x)).parse_err(equation)?;
 
-    let result = vec![expr_tree_to_infix(&left, sep), marker.to_string(),
-                      expr_tree_to_infix(&right, sep), expr_tree_to_infix(&unit, "")];
+    let (left, right) = take_infix(left, right, sep);
+    let unit = expr_tree_to_infix(&unit, "");
+
+    let result = [left, marker.to_string(), right, unit];
 
     Ok(result.join(sep))
 }
 
-pub fn simplify_dimen_differentiation(differentiation: &str, target: &str, sep: &str, custom_units: &CustomUnits) -> Result<String, EquationError> {
+pub fn simplify_dimen_differentiation(
+    differentiation: &str,
+    target: &str,
+    sep: &str,
+    custom_units: &CustomUnits) -> Result<String, EquationError> {
     basic_simplify_dimen(differentiation, target, sep, "!=", custom_units)
 }
 
-pub fn simplify_dimen_equation(equation: &str, target: &str, sep: &str, custom_units: &CustomUnits) -> Result<String, EquationError> {
+pub fn simplify_dimen_equation(
+    equation: &str,
+    target: &str,
+    sep: &str,
+    custom_units: &CustomUnits) -> Result<String, EquationError> {
     basic_simplify_dimen(equation, target, sep, "=", custom_units)
 }

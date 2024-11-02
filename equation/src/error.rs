@@ -5,6 +5,8 @@ use dimension::error::DimenError;
 
 use self::EquationError::*;
 
+pub type EquaResult<T> = Result<T, EquationError>;
+
 pub enum EquationError {
     SyntaxError(String),
     MathError(String),
@@ -27,14 +29,31 @@ impl Debug for EquationError {
     }
 }
 
-pub fn parse_expr_err(equa: &str, err: ExprError) -> EquationError {
+
+pub trait ParseErr<T> {
+    fn parse_err(self, equation: &str) -> Result<T, EquationError>;
+}
+
+impl<T> ParseErr<T> for Result<T, ExprError> {
+    fn parse_err(self, equation: &str) -> Result<T, EquationError> {
+        self.map_err(|err| parse_expr_err(equation, err))
+    }
+}
+
+impl<T> ParseErr<T> for Result<T, DimenError> {
+    fn parse_err(self, equation: &str) -> Result<T, EquationError> {
+        self.map_err(|err| parse_dimen_err(equation, err))
+    }
+}
+
+fn parse_expr_err(equa: &str, err: ExprError) -> EquationError {
     match err {
         ExprError::SyntaxError(_) => SyntaxError(equa.to_string()),
         ExprError::MathError(_) => MathError(equa.to_string())
     }
 }
 
-pub fn parse_dimen_err(equa: &str, err: DimenError) -> EquationError {
+fn parse_dimen_err(equa: &str, err: DimenError) -> EquationError {
     match &err {
         DimenError::SyntaxError(_) => SyntaxError(equa.to_string()),
         DimenError::MathError(_) => MathError(equa.to_string()),
