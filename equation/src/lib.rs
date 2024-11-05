@@ -42,6 +42,17 @@ fn take_other_values(tree: &mut ExprTree, target: &ExprTree, takes_target: bool)
                 (ZERO, ZERO)
             } else { (ONE, ONE) };
 
+            let can_take_left = can_take(&node1, target, takes_target, t);
+            let can_take_right = can_take(&node2, target, takes_target, t);
+
+            let target_is_mul = (t == Tier2 && i) && can_take_right;
+            let target_is_dividend = t == Tier2 && can_take_left;
+
+            if takes_target && (target_is_mul || target_is_dividend)  {
+                *tree = ZERO;
+                return Ok(Some((ExprTree::make_opr(node1, node2, op), SUB)))
+            }
+
             if can_take(&node1, target, takes_target, t) {
                 (node1, taken_left) = (taken_left, node1);
             }
@@ -52,16 +63,10 @@ fn take_other_values(tree: &mut ExprTree, target: &ExprTree, takes_target: bool)
 
             *tree = ExprTree::make_opr(node1, node2, op.clone());
 
-            if t == Tier1 && (taken_left == ZERO && taken_right == ZERO) ||
-                t == Tier2 && (taken_left == ONE && taken_right == ONE) {
-                return Ok(None);
-            }
+            if !can_take_left && !can_take_right { return Ok(None); }
 
-            let final_value = if i {
-                ExprTree::make_opr(taken_left, taken_right, op)
-            } else {
-                ExprTree::make_opr(taken_right, taken_left, op)
-            };
+            if !i { (taken_left, taken_right) = (taken_right, taken_left) }
+            let final_value = ExprTree::make_opr(taken_left, taken_right, op);
 
             let result = (final_value, Op(t, !i));
             Ok(Some(result))
@@ -158,6 +163,20 @@ pub fn simplify_equation(equation: &str, target: &str, sep: &str) -> EquaResult<
     basic_simplify(equation, target, sep, "=")
 }
 
+fn take_final_unit(tree: ExprTree, dict: &mut UnitsDict, equation: &str) -> EquaResult<(ExprTree, String)> {
+    let (tree, unit) = separate_value_unit(
+        tree, dict, &|unit: &str| {
+            let new_unit = unit.trim_start_matches("_u_");
+            if unit != new_unit { ("1", new_unit.to_string()) } else { (unit, String::new()) }
+        },
+        &|_, _, _| { Ok(()) },
+    ).parse_err(equation)?;
+
+    let unit = expr_tree_to_infix(&unit, "");
+
+    Ok((tree.propagate(ExprTree::clean, |x| Ok(x)).parse_err(equation)?, unit))
+}
+
 pub fn basic_simplify_dimen(
     equation: &str,
     target: &str,
@@ -190,20 +209,12 @@ pub fn basic_simplify_dimen(
     let simplified = simplify_equation_tree(left, right, target);
     (left, right) = simplified.parse_err(equation)?;
 
-    let (mut right, unit) = separate_value_unit(
-        right, &mut dict, &|unit: &str| {
-            let new_unit = unit.trim_start_matches("_u_");
-            if unit != new_unit { ("1", new_unit.to_string()) } else { (unit, String::new()) }
-        },
-        &|_, _, _| { Ok(()) },
-    ).parse_err(equation)?;
-
-    right = right.propagate(ExprTree::clean, |x| Ok(x)).parse_err(equation)?;
+    let (left, unit_left) = take_final_unit(left, &mut dict, equation)?;
+    let (right, unit_right) = take_final_unit(right, &mut dict, equation)?;
 
     let (left, right) = take_infix(left, right, sep);
-    let unit = expr_tree_to_infix(&unit, "");
 
-    let result = [left, marker.to_string(), right, unit];
+    let result = [left, unit_left, marker.to_string(), right, unit_right];
 
     Ok(result.join(sep))
 }
