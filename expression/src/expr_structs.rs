@@ -307,7 +307,7 @@ impl ExprTree {
             // Organize negative exponent
             (Operation(node1, node2, DIV), Leaf(Num(num)), Op(Tier3, i)) if num < 0.0 => {
                 let base = Operation(node2, node1, DIV);
-                ExprTree::make_opr(base, Leaf(Num(-num)), Op(Tier3, i))
+                ExprTree::clean(base, Leaf(Num(-num)), Op(Tier3, i))?
             }
 
             // Apply reading priority
