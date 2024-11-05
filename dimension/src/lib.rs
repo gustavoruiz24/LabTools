@@ -72,8 +72,10 @@ fn get_unit_based_on_op(op: &ExprUnit, mut l_unit: ExprTree, r_value: &mut ExprT
             l_unit = simplify(l_unit)?;
             r_unit = simplify(r_unit)?;
 
-            if l_unit == r_unit {
+            if l_unit == r_unit || r_unit.to_string().is_empty() {
                 Ok(l_unit)
+            } else if l_unit.to_string().is_empty() {
+                Ok(r_unit)
             } else {
                 let op_str = if *i { "add" } else { "sub" };
 
@@ -89,21 +91,21 @@ fn get_unit_based_on_op(op: &ExprUnit, mut l_unit: ExprTree, r_value: &mut ExprT
         Op(Tier::Tier3, _) => {
             if let Leaf(Unk(r_unit_str)) = &r_unit {
                 if !r_unit_str.is_empty() {
-                    Err(OperationError(
+                    return Err(OperationError(
                         GeneDimen::get_name(),
                         l_unit.to_string(),
                         "pow",
                         GeneDimen::get_name(),
                         r_unit.to_string(),
-                    ))
-                } else if let Leaf(Unk(l_unit_str)) = &l_unit {
-                    if !l_unit_str.is_empty() {
-                        let pow = std::mem::replace(r_value, ONE);
-                        Ok(ExprTree::make_opr(l_unit, pow, op.clone()))
-                    } else {
-                        Ok(r_unit)
-                    }
-                } else { unreachable!() }
+                    ));
+                }
+
+                if !l_unit.to_string().is_empty() {
+                    let pow = std::mem::replace(r_value, ONE);
+                    Ok(ExprTree::make_opr(l_unit, pow, op.clone()))
+                } else {
+                    Ok(r_unit)
+                }
             } else { unreachable!() }
         }
         _ => {
