@@ -6,7 +6,7 @@ use error::{EquaResult, ParseErr};
 use dimension::{separate_value_unit, split_value_unit, CustomUnits, UnitsDict};
 use expression::api::expr_tree_to_infix;
 use expression::expr_structs::ExprTree::{self, Leaf, Operation};
-use expression::expr_structs::ExprUnit::{Num, Op};
+use expression::expr_structs::ExprUnit::{Num, Op, Unk};
 use expression::Tier::*;
 use expression::*;
 
@@ -191,16 +191,31 @@ pub fn basic_simplify_dimen(
     let mut dict = UnitsDict::new();
     let mut separate = |tree| {
         separate_value_unit(
-            tree, &mut dict, &|text| split_value_unit(text, custom_units), &|dict, value, unit| {
-                dict.take_unit_with_custom(value, unit, custom_units)?;
-                *unit = "_u_".to_string() + &unit;
-                Ok(())
+            tree, &mut dict, &|text| split_value_unit(text, custom_units),
+            &|dict, value, unit| {
+                dict.take_unit_with_custom(value, unit, custom_units)
             },
         )
     };
 
-    let (left_value, left_unit) = separate(left).parse_err(equation)?;
-    let (right_value, right_unit) = separate(right).parse_err(equation)?;
+    let format_unit = |unit: ExprTree| {
+        unit.propagate(
+            |x, y, z| Ok(ExprTree::make_opr(x, y, z)),
+            |leaf| {
+                if let Leaf(Unk(unit)) = leaf {
+                    Ok(Leaf(Unk("_u_".to_string() + &unit)))
+                } else {
+                    Ok(leaf)
+                }
+            }
+        )
+    };
+
+    let (left_value, mut left_unit) = separate(left).parse_err(equation)?;
+    let (right_value, mut right_unit) = separate(right).parse_err(equation)?;
+
+    left_unit = format_unit(left_unit)?;
+    right_unit = format_unit(right_unit)?;
 
     let mut left = ExprTree::make_opr(left_value, left_unit, MUL);
     let mut right = ExprTree::make_opr(right_value, right_unit, MUL);
@@ -214,7 +229,8 @@ pub fn basic_simplify_dimen(
 
     let (left, right) = take_infix(left, right, sep);
 
-    let result = [left, unit_left, marker.to_string(), right, unit_right];
+    let mut result = vec![left, unit_left, marker.to_string(), right, unit_right];
+    result.retain(|x| x != "");
 
     Ok(result.join(sep))
 }
