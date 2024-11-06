@@ -300,12 +300,7 @@ pub fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (T
     let both_are_default = left.is_default && right.is_default;
 
     let result = match (take(&mut left.left), take(&mut right.left)) {
-        (x, y) if x == ZERO => {
-            left.left = x;
-            right.left = y;
-            None
-        }
-        (x, y) if x == ONE || y == ONE => {
+        (x, y) if x == ZERO || (x == ONE || y == ONE) => {
             left.left = x;
             right.left = y;
             None
