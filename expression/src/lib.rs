@@ -69,14 +69,10 @@ impl PartialOrd for Tier {
     }
 }
 
-pub fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit {
-    Op(tuple.0, tuple.1)
-}
+pub fn tuple_to_op(tuple: (Tier, bool)) -> ExprUnit { Op(tuple.0, tuple.1) }
 
 pub fn operate_and_simplify(left: ExprTree, right: ExprTree, op: ExprUnit) -> ExprTreeResult {
-    ExprTree::make_opr(left, right, op)
-        .propagate(ExprTree::clean, |x| Ok(x))?
-        .propagate(apply_simplifications, |x| Ok(x))
+    simplify(ExprTree::make_opr(left, right, op))
 }
 
 pub fn simplify(tree: ExprTree) -> ExprTreeResult {
@@ -100,9 +96,7 @@ pub fn sci_notation_to_number(tree: ExprTree) -> ExprTree {
 }
 
 fn take_sci_notation_number(number: f64) -> (f64, f64) {
-    if number == 0.0 {
-        return (0.0, 0.0);
-    }
+    if number == 0.0 { return (0.0, 0.0); }
 
     let exponent = number.abs().log10().floor();
     let mut mantissa = number / 10_f64.powf(exponent);
@@ -306,6 +300,11 @@ pub fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (T
     let both_are_default = left.is_default && right.is_default;
 
     let result = match (take(&mut left.left), take(&mut right.left)) {
+        (x, y) if x == ZERO => {
+            left.left = x;
+            right.left = y;
+            None
+        }
         (x, y) if x == ONE || y == ONE => {
             left.left = x;
             right.left = y;
@@ -339,9 +338,7 @@ pub fn common_factor(orig_left: &mut ExprTree, orig_right: &mut ExprTree, op: (T
                         recover_left = false;
                     }
 
-                    if op == (Tier2, false) {
-                        cf.0 = ONE;
-                    }
+                    if op == (Tier2, false) { cf.0 = ONE; }
 
                     result = Some(cf);
                 } else {
